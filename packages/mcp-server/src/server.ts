@@ -1,10 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import {
-  SkillBridgeRuntime,
-  type ResourceManagerInput,
-} from "../../core/src/index.js";
+import { SkillBridgeRuntime, type ResourceManagerInput } from "@skillbridge/core";
 
 export type SkillBridgeMcpServerOptions = {
   skillDirs: string[];

@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { SkillBridgeRuntime, type SkillBridgeMessage } from "../../core/src/index.js";
+import { SkillBridgeRuntime, type SkillBridgeMessage } from "@skillbridge/core";
 
 export type OpenAIProxyOptions = {
   targetBaseUrl?: string;
