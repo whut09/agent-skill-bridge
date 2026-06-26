@@ -2,7 +2,13 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createRuntimeTraceEvent, createSkillPackage, scanSkillDirs, searchSkills } from "../src/index.js";
+import {
+  buildSkillContext,
+  createRuntimeTraceEvent,
+  createSkillPackage,
+  scanSkillDirs,
+  searchSkills,
+} from "../src/index.js";
 
 describe("core", () => {
   it("creates a skill package", () => {
@@ -115,5 +121,60 @@ describe("core", () => {
       skill: expect.objectContaining({ name: "镜头出图" }),
     });
     expect(lensResults[0].reason.join(" ")).toContain("name exact match");
+  });
+
+  it("builds catalog-only context by default", async () => {
+    const context = await buildSkillContext({
+      skills: [
+        {
+          name: "标书撰写",
+          description: "生成投标文件和标书内容",
+          path: "/skills/bid-writing",
+          frontmatter: {},
+          metadata: { keywords: ["标书"] },
+          references: [],
+          scripts: [],
+          assets: [],
+        },
+      ],
+    });
+
+    expect(context).toMatchInlineSnapshot(`
+      {
+        "catalog": "# Skill Catalog\n\n- 标书撰写: 生成投标文件和标书内容",
+        "systemPatch": "# Skill Catalog\n\n- 标书撰写: 生成投标文件和标书内容",
+      }
+    `);
+  });
+
+  it("builds selected skill context and truncates references before core instructions", async () => {
+    const selectedSkill = {
+      name: "代码评审",
+      description: "对代码改动进行审查、指出问题并给出建议",
+      path: "/skills/code-review",
+      frontmatter: {},
+      metadata: { keywords: ["代码评审"] },
+      references: ["references/very-long-reference-a.md", "references/very-long-reference-b.md"],
+      scripts: ["scripts/run.sh"],
+      assets: ["assets/icon.png"],
+    };
+
+    const context = await buildSkillContext({
+      skills: [selectedSkill],
+      selectedSkill,
+      skillBodies: {
+        [selectedSkill.path]: "---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险",
+      },
+      budget: 260,
+    });
+
+    expect(context.selectedSkill?.body).toContain("# 核心指令");
+    expect(context.systemPatch).toContain("# 核心指令");
+    expect(context.systemPatch).toContain("- 审查代码");
+    expect(context.systemPatch).not.toContain("references/very-long-reference-b.md");
+    expect(context.systemPatch).toMatchInlineSnapshot(`
+      "# Skill Catalog\n\n- 代码评审: 对代码改动进行审查、指出问题并给出建议\n\n# Selected Skill: 代码评审\n\n---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险\n\n## References\n\n- references/very-long-reference-a.md\n- references/very-long-reference-b.md\n\n## Scripts\n\n- scripts/run.sh\n\n## Assets\n\n- assets/icon.png"
+    `);
+    expect(context.systemPatch.length).toBeLessThanOrEqual(260);
   });
 });

@@ -26,6 +26,27 @@ export type SkillSearchResult = {
   reason: string[];
 };
 
+export type SkillContextInput = {
+  query?: string;
+  skills: SkillManifest[];
+  selectedSkill?: SkillManifest;
+  skillBodies?: Record<string, string>;
+  budget?: number;
+};
+
+export type SkillContext = {
+  catalog: string;
+  systemPatch: string;
+  selectedSkill?: {
+    name: string;
+    description: string;
+    body?: string;
+    references: string[];
+    scripts: string[];
+    assets: string[];
+  };
+};
+
 export type RuntimeTraceEvent = {
   type: string;
   message: string;
@@ -190,6 +211,97 @@ async function collectDirectoryFiles(skillDirectory: string, directoryName: stri
 
   const files = await listFilesRecursively(directoryPath);
   return files.map((filePath) => toRelativeSkillPath(skillDirectory, filePath));
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  if (maxLength <= 3) {
+    return value.slice(0, maxLength);
+  }
+
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function estimateSkillBody(skill: SkillManifest, body: string | undefined): string {
+  return body ?? `# ${skill.name}\n\n${skill.description}`;
+}
+
+function buildCatalog(skills: SkillManifest[]): string {
+  if (skills.length === 0) {
+    return "# Skill Catalog\n\nNo skills available.";
+  }
+
+  const lines = ["# Skill Catalog", ""];
+  for (const skill of skills) {
+    lines.push(`- ${skill.name}: ${skill.description}`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildSelectedSkillBlock(skill: SkillManifest, body: string | undefined, budget: number): string {
+  const coreBody = estimateSkillBody(skill, body).trim();
+  const coreSection = [
+    `# Selected Skill: ${skill.name}`,
+    "",
+    coreBody,
+    "",
+  ].join("\n");
+
+  const referenceSectionHeader = "## References";
+  const references = skill.references.map((reference) => `- ${reference}`);
+  const scripts = skill.scripts.map((script) => `- ${script}`);
+  const assets = skill.assets.map((asset) => `- ${asset}`);
+  const resourceBlock = [
+    referenceSectionHeader,
+    ...references.length > 0 ? ["", ...references] : ["", "- None"],
+    "",
+    "## Scripts",
+    ...(scripts.length > 0 ? scripts : ["- None"]),
+    "",
+    "## Assets",
+    ...(assets.length > 0 ? assets : ["- None"]),
+  ].join("\n");
+
+  const availableForResources = Math.max(0, budget - coreSection.length);
+  if (availableForResources <= 0) {
+    return coreSection;
+  }
+
+  return `${coreSection}${truncateText(resourceBlock, availableForResources)}`;
+}
+
+export async function buildSkillContext(input: SkillContextInput): Promise<SkillContext> {
+  const budget = input.budget ?? 8000;
+  const catalog = buildCatalog(input.skills);
+  const selectedSkill = input.selectedSkill;
+  const selectedBody = selectedSkill ? input.skillBodies?.[selectedSkill.path] : undefined;
+
+  if (!selectedSkill) {
+    const systemPatch = truncateText(catalog, budget);
+    return { catalog, systemPatch };
+  }
+
+  const selectedSkillBlock = buildSelectedSkillBlock(selectedSkill, selectedBody, budget);
+  const availableForCatalog = Math.max(0, budget - selectedSkillBlock.length - 1);
+  const catalogSection = truncateText(catalog, availableForCatalog);
+  const systemPatch = [catalogSection, "", selectedSkillBlock].join("\n").trim();
+
+  return {
+    catalog,
+    systemPatch,
+    selectedSkill: {
+      name: selectedSkill.name,
+      description: selectedSkill.description,
+      body: selectedBody,
+      references: selectedSkill.references,
+      scripts: selectedSkill.scripts,
+      assets: selectedSkill.assets,
+    },
+  };
 }
 
 export async function scanSkillDirs(skillDirs: string[]): Promise<SkillManifest[]> {
