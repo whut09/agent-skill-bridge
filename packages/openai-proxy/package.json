@@ -2,6 +2,9 @@
   "name": "@skillbridge/openai-proxy",
   "version": "0.1.0",
   "type": "module",
+  "dependencies": {
+    "@skillbridge/core": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
