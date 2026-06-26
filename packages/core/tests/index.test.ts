@@ -6,6 +6,7 @@ import {
   buildSkillContext,
   createRuntimeTraceEvent,
   createSkillPackage,
+  readSkillResource,
   scanSkillDirs,
   searchSkills,
 } from "../src/index.js";
@@ -176,5 +177,58 @@ describe("core", () => {
       "# Skill Catalog\n\n- 代码评审: 对代码改动进行审查、指出问题并给出建议\n\n# Selected Skill: 代码评审\n\n---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险\n\n## References\n\n- references/very-long-reference-a.md\n- references/very-long-reference-b.md\n\n## Scripts\n\n- scripts/run.sh\n\n## Assets\n\n- assets/icon.png"
     `);
     expect(context.systemPatch.length).toBeLessThanOrEqual(260);
+  });
+
+  it("reads text and binary resources safely within skill directory", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-resource-"));
+    const skillDir = path.join(tempRoot, "skill");
+    const referencesDir = path.join(skillDir, "references");
+    const assetsDir = path.join(skillDir, "assets");
+
+    await mkdir(referencesDir, { recursive: true });
+    await mkdir(assetsDir, { recursive: true });
+    await writeFile(path.join(referencesDir, "guide.md"), "hello resource", "utf8");
+    await writeFile(path.join(assetsDir, "image.bin"), Buffer.from([0xde, 0xad, 0xbe, 0xef]));
+
+    const textResource = await readSkillResource({
+      skillPath: skillDir,
+      resourcePath: "references/guide.md",
+    });
+    const binaryResource = await readSkillResource({
+      skillPath: skillDir,
+      resourcePath: "assets/image.bin",
+    });
+
+    expect(textResource).toMatchObject({
+      type: "text",
+      content: "hello resource",
+    });
+    expect(textResource.metadata).toMatchObject({
+      isText: true,
+      mimeType: "text/markdown; charset=utf-8",
+      extension: ".md",
+    });
+
+    expect(binaryResource.type).toBe("binary");
+    expect(Buffer.isBuffer(binaryResource.content)).toBe(true);
+    expect(binaryResource.metadata).toMatchObject({
+      isText: false,
+      mimeType: "application/octet-stream",
+      extension: ".bin",
+    });
+  });
+
+  it("blocks path traversal outside the skill directory", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-safety-"));
+    const skillDir = path.join(tempRoot, "skill");
+
+    await mkdir(skillDir, { recursive: true });
+
+    await expect(
+      readSkillResource({
+        skillPath: skillDir,
+        resourcePath: "../outside.md",
+      }),
+    ).rejects.toThrow(/outside skill directory/);
   });
 });
