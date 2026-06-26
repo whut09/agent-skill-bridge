@@ -4,13 +4,13 @@ import { Command } from "commander";
 
 const program = new Command();
 
-program.name("skillbridge").description("SkillBridge Runtime CLI").version("0.1.0");
+program.name("skillbridge").description("agent-skill-bridge CLI").version("0.1.0");
 
 program
   .command("doctor")
   .description("Inspect the local runtime setup")
   .action(() => {
-    process.stdout.write("SkillBridge Runtime CLI is installed.\n");
+    process.stdout.write("agent-skill-bridge CLI is installed.\n");
   });
 
 program
