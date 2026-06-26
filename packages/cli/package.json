@@ -6,6 +6,7 @@
     "skillbridge": "./dist/index.js"
   },
   "dependencies": {
+    "@skillbridge/core": "workspace:*",
     "commander": "^12.1.0"
   },
   "scripts": {

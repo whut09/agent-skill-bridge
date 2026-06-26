@@ -6,6 +6,7 @@ import {
   type SkillBridgeMessage,
   type SkillManifest,
 } from "@skillbridge/core";
+import { randomUUID } from "node:crypto";
 
 export type OpenAIProxyOptions = {
   targetBaseUrl?: string;
@@ -109,8 +110,13 @@ function readRequestBody(request: IncomingMessage): Promise<string> {
   });
 }
 
-function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
-  response.writeHead(statusCode, { "content-type": "application/json" });
+function writeJson(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): void {
+  response.writeHead(statusCode, { "content-type": "application/json", ...headers });
   response.end(JSON.stringify(body));
 }
 
@@ -246,8 +252,12 @@ async function executeSkillBridgeTool(
   };
 }
 
-async function forwardResponse(targetResponse: Response, response: ServerResponse): Promise<void> {
-  response.writeHead(targetResponse.status, Object.fromEntries(targetResponse.headers.entries()));
+async function forwardResponse(
+  targetResponse: Response,
+  response: ServerResponse,
+  headers: Record<string, string> = {},
+): Promise<void> {
+  response.writeHead(targetResponse.status, { ...Object.fromEntries(targetResponse.headers.entries()), ...headers });
 
   if (targetResponse.body) {
     for await (const chunk of targetResponse.body) {
@@ -276,14 +286,17 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
   };
 
   return createServer(async (request, response) => {
+    const traceId = randomUUID();
+    const traceHeaders = { "x-skillbridge-trace-id": traceId };
+
     try {
       if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
-        writeJson(response, 404, { error: "Not found" });
+        writeJson(response, 404, { error: "Not found" }, traceHeaders);
         return;
       }
 
       if (!targetBaseUrl) {
-        writeJson(response, 500, { error: "SKILLBRIDGE_TARGET_BASE_URL is required" });
+        writeJson(response, 500, { error: "SKILLBRIDGE_TARGET_BASE_URL is required" }, traceHeaders);
         return;
       }
 
@@ -312,7 +325,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
 
       let targetResponse = await sendTargetRequest(proxiedPayload);
       if (payload.stream) {
-        await forwardResponse(targetResponse, response);
+        await forwardResponse(targetResponse, response, traceHeaders);
         return;
       }
 
@@ -322,13 +335,13 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
         const toolCalls = getToolCalls(responseBody);
 
         if (toolCalls.length === 0) {
-          writeJson(response, targetResponse.status, responseBody);
+          writeJson(response, targetResponse.status, responseBody, traceHeaders);
           return;
         }
 
         const assistantMessage = responseBody.choices?.[0]?.message;
         if (!assistantMessage) {
-          writeJson(response, targetResponse.status, responseBody);
+          writeJson(response, targetResponse.status, responseBody, traceHeaders);
           return;
         }
 
@@ -339,9 +352,9 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
         targetResponse = await sendTargetRequest(proxiedPayload);
       }
 
-      await forwardResponse(targetResponse, response);
+      await forwardResponse(targetResponse, response, traceHeaders);
     } catch (error) {
-      writeJson(response, 500, { error: error instanceof Error ? error.message : "Unknown proxy error" });
+      writeJson(response, 500, { error: error instanceof Error ? error.message : "Unknown proxy error" }, traceHeaders);
     }
   });
 }

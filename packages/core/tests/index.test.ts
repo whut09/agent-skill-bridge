@@ -350,6 +350,9 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(prepared.toolInstructions).toContain("runScript");
     expect(prepared.systemPatch).toContain("# Selected Skill: 代码评审");
     expect(prepared.systemPatch).toContain("核心工作流程");
+    expect(runtime.getTrace().map((event) => event.type)).toEqual(
+      expect.arrayContaining(["scan_start", "scan_complete", "search_start", "skill_selected", "context_built"]),
+    );
   });
 
   it("exposes readResource and runScript methods", async () => {
@@ -388,6 +391,12 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(resource).toMatchObject({ type: "text", content: "hello resource" });
     expect(scriptResult.stdout).toContain("hello from runtime");
     expect(scriptResult.exitCode).toBe(0);
+    expect(runtime.getTrace().map((event) => event.type)).toEqual(
+      expect.arrayContaining(["resource_read", "script_run_start", "script_run_complete"]),
+    );
+
+    runtime.clearTrace();
+    expect(runtime.getTrace()).toEqual([]);
   });
 
   it("rejects scripts when not explicitly enabled", async () => {
@@ -398,11 +407,31 @@ description: 对代码改动进行审查、指出问题并给出建议
     await mkdir(scriptsDir, { recursive: true });
     await writeFile(path.join(scriptsDir, "echo.mjs"), `console.log("hello");`, "utf8");
 
+    const runtime = new SkillBridgeRuntime([skillDir]);
+    const skill = {
+      name: "Disabled Script",
+      description: "Disabled script test",
+      path: skillDir,
+      frontmatter: {},
+      references: [],
+      scripts: ["scripts/echo.mjs"],
+      assets: [],
+    };
+
     await expect(
       executeLocalScript({
         skillPath: skillDir,
         scriptPath: "scripts/echo.mjs",
       }),
     ).rejects.toThrow(/disabled/);
+    await expect(
+      runtime.runScript({
+        skill,
+        scriptPath: "scripts/echo.mjs",
+      }),
+    ).rejects.toThrow(/disabled/);
+    expect(runtime.getTrace().map((event) => event.type)).toEqual(
+      expect.arrayContaining(["script_run_start", "script_run_failed"]),
+    );
   });
 });

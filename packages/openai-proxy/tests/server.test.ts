@@ -77,6 +77,7 @@ description: 对代码改动进行审查、指出问题并给出建议
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-skillbridge-trace-id")).toBeTruthy();
       expect(body).toEqual({ id: "chatcmpl-test", choices: [] });
       expect(receivedBodies).toHaveLength(1);
       expect(receivedBodies[0]).toMatchObject({
@@ -142,6 +143,7 @@ metadata:
       });
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-skillbridge-trace-id")).toBeTruthy();
       const forwardedMessages = (receivedBodies[0] as { messages: Array<{ role: string; content: string }> }).messages;
       const systemMessages = forwardedMessages.filter((message) => message.role === "system");
 
@@ -236,6 +238,7 @@ metadata:
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-skillbridge-trace-id")).toBeTruthy();
       expect(body).toMatchObject({ id: "chatcmpl-final" });
       expect(receivedBodies).toHaveLength(2);
       expect(receivedBodies[0].tools?.map((tool) => tool.function.name)).toEqual(
