@@ -13,6 +13,7 @@ export function createSkillPackage(input: {
     description: input.description,
     path: input.path,
     frontmatter: {},
+    rawFrontmatter: {},
     metadata: { keywords: [] },
     resources,
     references: resources.map((resource) => resource.path),

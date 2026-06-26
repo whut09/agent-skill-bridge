@@ -6,8 +6,13 @@ export type SkillResource = {
 export type SkillManifest = {
   name: string;
   description: string;
+  version?: string;
+  license?: string;
+  compatibility?: unknown;
+  allowedTools?: string[];
   path: string;
   frontmatter: Record<string, unknown>;
+  rawFrontmatter?: Record<string, unknown>;
   metadata?: {
     keywords?: string[];
   };

@@ -72,6 +72,57 @@ describe("core", () => {
     await expect(scanSkillDirs([tempRoot])).rejects.toThrow(/name/);
   });
 
+  it("parses extended frontmatter and searches real SKILL.md metadata keywords", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-keywords-"));
+    const skillDir = path.join(tempRoot, "skill");
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Architecture Review
+description: Review system architecture decisions
+version: 1.2.3
+license: MIT
+compatibility:
+  runtimes:
+    - node
+allowed-tools:
+  - readResource
+  - runScript
+metadata:
+  keywords: architecture, design review, adr
+---
+
+# Architecture Review
+
+Review tradeoffs and risks.`,
+      "utf8",
+    );
+
+    const manifests = await scanSkillDirs([tempRoot]);
+    const [manifest] = manifests;
+    const results = searchSkills("adr", manifests);
+
+    expect(manifest).toMatchObject({
+      name: "Architecture Review",
+      description: "Review system architecture decisions",
+      version: "1.2.3",
+      license: "MIT",
+      allowedTools: ["readResource", "runScript"],
+      metadata: { keywords: ["architecture", "design review", "adr"] },
+      rawFrontmatter: expect.objectContaining({
+        name: "Architecture Review",
+        metadata: expect.objectContaining({ keywords: "architecture, design review, adr" }),
+      }),
+    });
+    expect(manifest.compatibility).toEqual({ runtimes: ["node"] });
+    expect(results[0]).toMatchObject({
+      skill: expect.objectContaining({ name: "Architecture Review" }),
+    });
+    expect(results[0].reason.join(" ")).toContain("keywords matched");
+  });
+
   it("searches skills by name description and keywords", () => {
     const skills = [
       {
