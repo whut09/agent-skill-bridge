@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import matter from "gray-matter";
 
@@ -15,6 +16,7 @@ export type SkillManifest = {
   metadata?: {
     keywords?: string[];
   };
+  resources?: SkillResource[];
   references: string[];
   scripts: string[];
   assets: string[];
@@ -56,6 +58,21 @@ export type ResourceManagerInput = {
   resourcePath: string;
 };
 
+export type LocalScriptExecutorInput = {
+  skillPath: string;
+  scriptPath: string;
+  enableScripts?: boolean;
+  timeoutMs?: number;
+  args?: string[];
+};
+
+export type LocalScriptExecutorResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+};
+
 export type SkillContextInput = {
   query?: string;
   skills: SkillManifest[];
@@ -75,6 +92,31 @@ export type SkillContext = {
     scripts: string[];
     assets: string[];
   };
+};
+
+export type SkillBridgeMessage = {
+  role: string;
+  content: string;
+};
+
+export type SkillBridgePrepareInput = {
+  messages: SkillBridgeMessage[];
+  userMessage: string;
+  budget?: number;
+};
+
+export type SkillBridgePrepareOutput = SkillContext & {
+  activeSkills: SkillSearchResult[];
+  toolInstructions: string;
+};
+
+export type SkillBridgeRuntimeInitResult = {
+  skills: SkillManifest[];
+};
+
+export type SkillBridgeRuntimeRunScriptInput = Omit<LocalScriptExecutorInput, "skillPath" | "scriptPath"> & {
+  skill: SkillManifest;
+  scriptPath: string;
 };
 
 export type RuntimeTraceEvent = {
@@ -97,19 +139,163 @@ export function createRuntimeTraceEvent(
   };
 }
 
+function ensureScriptExecutionEnabled(enableScripts?: boolean): void {
+  if (enableScripts !== true) {
+    throw new Error("Script execution is disabled. Set enableScripts=true to allow execution.");
+  }
+}
+
+function resolveScriptPath(skillPath: string, scriptPath: string): string {
+  const normalizedSkillPath = path.resolve(skillPath);
+  const normalizedScriptPath = path.resolve(normalizedSkillPath, scriptPath);
+  const relative = path.relative(normalizedSkillPath, normalizedScriptPath);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Refusing to execute outside scripts directory: ${scriptPath}`);
+  }
+
+  if (!relative.startsWith("scripts")) {
+    throw new Error(`Refusing to execute non-scripts path: ${scriptPath}`);
+  }
+
+  return normalizedScriptPath;
+}
+
+export async function executeLocalScript(input: LocalScriptExecutorInput): Promise<LocalScriptExecutorResult> {
+  ensureScriptExecutionEnabled(input.enableScripts);
+
+  const scriptAbsolutePath = resolveScriptPath(input.skillPath, input.scriptPath);
+  const stat = await fs.stat(scriptAbsolutePath);
+
+  if (!stat.isFile()) {
+    throw new Error(`Script path is not a file: ${input.scriptPath}`);
+  }
+
+  const timeoutMs = input.timeoutMs ?? 30000;
+  const args = input.args ?? [];
+
+  return new Promise<LocalScriptExecutorResult>((resolve, reject) => {
+    const childProcess = spawn(process.execPath, [scriptAbsolutePath, ...args], {
+      cwd: path.dirname(scriptAbsolutePath),
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let finished = false;
+
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      childProcess.kill("SIGKILL");
+    }, timeoutMs);
+
+    childProcess.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    childProcess.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    childProcess.on("error", (error) => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timeoutHandle);
+        reject(error);
+      }
+    });
+
+    childProcess.on("close", (exitCode) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      clearTimeout(timeoutHandle);
+      resolve({ stdout, stderr, exitCode, timedOut });
+    });
+  });
+}
+
+export class SkillBridgeRuntime {
+  private readonly skillDirs: string[];
+
+  private skills: SkillManifest[] = [];
+
+  constructor(skillDirs: string[]) {
+    this.skillDirs = skillDirs;
+  }
+
+  async init(): Promise<SkillBridgeRuntimeInitResult> {
+    this.skills = await scanSkillDirs(this.skillDirs);
+    return { skills: this.skills };
+  }
+
+  async prepare(input: SkillBridgePrepareInput): Promise<SkillBridgePrepareOutput> {
+    const activeSkills = searchSkills(input.userMessage, this.skills);
+    const selectedSkill = activeSkills[0]?.skill;
+    const context = await buildSkillContext({
+      query: input.userMessage,
+      skills: this.skills,
+      selectedSkill,
+      budget: input.budget,
+    });
+
+    return {
+      ...context,
+      activeSkills,
+      toolInstructions: buildToolInstructions(selectedSkill),
+    };
+  }
+
+  async readResource(input: ResourceManagerInput): Promise<ResourceManagerResult> {
+    return readSkillResource(input);
+  }
+
+  async runScript(input: SkillBridgeRuntimeRunScriptInput): Promise<LocalScriptExecutorResult> {
+    return executeLocalScript({
+      skillPath: input.skill.path,
+      scriptPath: input.scriptPath,
+      enableScripts: input.enableScripts,
+      timeoutMs: input.timeoutMs,
+      args: input.args,
+    });
+  }
+}
+
+function buildToolInstructions(selectedSkill?: SkillManifest): string {
+  const lines = [
+    "Tool usage:",
+    "- readResource({ skillPath, resourcePath }) reads only files inside a skill directory.",
+    "- runScript({ skill, scriptPath, enableScripts: true }) executes scripts inside scripts/ only.",
+    "- Scripts are disabled by default and shell execution is never enabled.",
+  ];
+
+  if (selectedSkill) {
+    lines.push(`- Active skill: ${selectedSkill.name}`);
+  }
+
+  return lines.join("\n");
+}
+
 export function createSkillPackage(input: {
   name: string;
   description: string;
   path: string;
   resources?: SkillResource[];
 }): SkillManifest {
+  const resources = input.resources ?? [];
+
   return {
     name: input.name,
     description: input.description,
     path: input.path,
     frontmatter: {},
     metadata: { keywords: [] },
-    references: (input.resources ?? []).map((resource) => resource.path),
+    resources,
+    references: resources.map((resource) => resource.path),
     scripts: [],
     assets: [],
   };
@@ -374,27 +560,39 @@ function buildSelectedSkillBlock(skill: SkillManifest, body: string | undefined,
     "",
   ].join("\n");
 
-  const referenceSectionHeader = "## References";
-  const references = skill.references.map((reference) => `- ${reference}`);
-  const scripts = skill.scripts.map((script) => `- ${script}`);
-  const assets = skill.assets.map((asset) => `- ${asset}`);
-  const resourceBlock = [
-    referenceSectionHeader,
-    ...references.length > 0 ? ["", ...references] : ["", "- None"],
-    "",
-    "## Scripts",
-    ...(scripts.length > 0 ? scripts : ["- None"]),
-    "",
-    "## Assets",
-    ...(assets.length > 0 ? assets : ["- None"]),
-  ].join("\n");
-
-  const availableForResources = Math.max(0, budget - coreSection.length);
+  const fixedSections = ["## References", "", "## Scripts", "", "## Assets", ""].join("\n");
+  const availableForResources = Math.max(0, budget - coreSection.length - fixedSections.length);
   if (availableForResources <= 0) {
-    return coreSection;
+    return `${coreSection}${fixedSections}`;
   }
 
-  return `${coreSection}${truncateText(resourceBlock, availableForResources)}`;
+  const referenceLines: string[] = [];
+  let remainingBudget = availableForResources;
+  for (const reference of skill.references) {
+    const line = `- ${reference}`;
+    if (line.length + 1 > remainingBudget) {
+      break;
+    }
+    referenceLines.push(line);
+    remainingBudget -= line.length + 1;
+  }
+
+  const scriptLines = skill.scripts.map((script) => `- ${script}`);
+  const assetLines = skill.assets.map((asset) => `- ${asset}`);
+
+  const resourceBlock = [
+    "## References",
+    "",
+    ...(referenceLines.length > 0 ? referenceLines : ["- None"]),
+    "",
+    "## Scripts",
+    ...(scriptLines.length > 0 ? scriptLines : ["- None"]),
+    "",
+    "## Assets",
+    ...(assetLines.length > 0 ? assetLines : ["- None"]),
+  ].join("\n");
+
+  return `${coreSection}${resourceBlock}`;
 }
 
 export async function buildSkillContext(input: SkillContextInput): Promise<SkillContext> {

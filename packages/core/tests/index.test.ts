@@ -4,8 +4,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildSkillContext,
+  executeLocalScript,
   createRuntimeTraceEvent,
   createSkillPackage,
+  SkillBridgeRuntime,
   readSkillResource,
   scanSkillDirs,
   searchSkills,
@@ -166,7 +168,7 @@ describe("core", () => {
       skillBodies: {
         [selectedSkill.path]: "---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险",
       },
-      budget: 260,
+      budget: 180,
     });
 
     expect(context.selectedSkill?.body).toContain("# 核心指令");
@@ -174,7 +176,7 @@ describe("core", () => {
     expect(context.systemPatch).toContain("- 审查代码");
     expect(context.systemPatch).not.toContain("references/very-long-reference-b.md");
     expect(context.systemPatch).toMatchInlineSnapshot(`
-      "# Skill Catalog\n\n- 代码评审: 对代码改动进行审查、指出问题并给出建议\n\n# Selected Skill: 代码评审\n\n---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险\n\n## References\n\n- references/very-long-reference-a.md\n- references/very-long-reference-b.md\n\n## Scripts\n\n- scripts/run.sh\n\n## Assets\n\n- assets/icon.png"
+      "# Selected Skill: 代码评审\n\n---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险\n## References\n\n- references/very-long-reference-a.md\n\n## Scripts\n- scripts/run.sh\n\n## Assets\n- assets/icon.png"
     `);
     expect(context.systemPatch.length).toBeLessThanOrEqual(260);
   });
@@ -230,5 +232,97 @@ describe("core", () => {
         resourcePath: "../outside.md",
       }),
     ).rejects.toThrow(/outside skill directory/);
+  });
+
+  it("prepares a runtime with selected skills and tool instructions", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: 代码评审
+description: 对代码改动进行审查、指出问题并给出建议
+---
+
+# 核心指令
+
+- 审查代码
+- 关注风险`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "guide.md"), "guide", "utf8");
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("runtime ok");`, "utf8");
+
+    const runtime = new SkillBridgeRuntime([skillRoot]);
+    const initResult = await runtime.init();
+    const prepared = await runtime.prepare({
+      messages: [{ role: "user", content: "代码评审" }],
+      userMessage: "代码评审",
+      budget: 600,
+    });
+
+    expect(initResult.skills).toHaveLength(1);
+    expect(prepared.activeSkills[0].skill.name).toBe("代码评审");
+    expect(prepared.toolInstructions).toContain("readResource");
+    expect(prepared.toolInstructions).toContain("runScript");
+    expect(prepared.systemPatch).toContain("# Selected Skill: 代码评审");
+  });
+
+  it("exposes readResource and runScript methods", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-actions-"));
+    const skillDir = path.join(tempRoot, "skill");
+    const scriptsDir = path.join(skillDir, "scripts");
+    const referencesDir = path.join(skillDir, "references");
+
+    await mkdir(scriptsDir, { recursive: true });
+    await mkdir(referencesDir, { recursive: true });
+    await writeFile(path.join(referencesDir, "guide.md"), "hello resource", "utf8");
+    await writeFile(path.join(scriptsDir, "echo.mjs"), `console.log("hello from runtime");`, "utf8");
+
+    const runtime = new SkillBridgeRuntime([skillDir]);
+
+    const resource = await runtime.readResource({
+      skillPath: skillDir,
+      resourcePath: "references/guide.md",
+    });
+    const scriptResult = await runtime.runScript({
+      skill: {
+        name: "代码评审",
+        description: "对代码改动进行审查、指出问题并给出建议",
+        path: skillDir,
+        frontmatter: {},
+        metadata: { keywords: ["代码评审"] },
+        references: [],
+        scripts: ["scripts/echo.mjs"],
+        assets: [],
+      },
+      scriptPath: "scripts/echo.mjs",
+      enableScripts: true,
+      timeoutMs: 5000,
+    });
+
+    expect(resource).toMatchObject({ type: "text", content: "hello resource" });
+    expect(scriptResult.stdout).toContain("hello from runtime");
+    expect(scriptResult.exitCode).toBe(0);
+  });
+
+  it("rejects scripts when not explicitly enabled", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-disabled-"));
+    const skillDir = path.join(tempRoot, "skill");
+    const scriptsDir = path.join(skillDir, "scripts");
+
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(path.join(scriptsDir, "echo.mjs"), `console.log("hello");`, "utf8");
+
+    await expect(
+      executeLocalScript({
+        skillPath: skillDir,
+        scriptPath: "scripts/echo.mjs",
+      }),
+    ).rejects.toThrow(/disabled/);
   });
 });
