@@ -127,30 +127,30 @@ Review tradeoffs and risks.`,
     const skills = [
       {
         name: "标书撰写",
-        description: "生成投标文件和标书内容",
+        description: "生成投标文件、投标响应和标书内容",
         path: "/skills/bid-writing",
         frontmatter: {},
-        metadata: { keywords: ["标书", "投标", "商务"] },
+        metadata: { keywords: ["标书", "投标", "投标响应", "商务"] },
         references: [],
         scripts: [],
         assets: [],
       },
       {
         name: "代码评审",
-        description: "对代码改动进行审查、指出问题并给出建议",
+        description: "对代码改动进行审查、指出问题、识别风险并给出建议",
         path: "/skills/code-review",
         frontmatter: {},
-        metadata: { keywords: ["review", "代码评审", "PR"] },
+        metadata: { keywords: ["review", "代码评审", "PR", "风险检查"] },
         references: [],
         scripts: [],
         assets: [],
       },
       {
         name: "镜头出图",
-        description: "用于镜头出图和画面构图参考",
+        description: "用于镜头出图、Zemax CAD 图纸和画面构图参考",
         path: "/skills/lens-drawing",
         frontmatter: {},
-        metadata: { keywords: ["镜头出图", "构图", "分镜"] },
+        metadata: { keywords: ["镜头出图", "构图", "分镜", "Zemax", "CAD", "图纸"] },
         references: [],
         scripts: [],
         assets: [],
@@ -175,6 +175,28 @@ Review tradeoffs and risks.`,
       skill: expect.objectContaining({ name: "镜头出图" }),
     });
     expect(lensResults[0].reason.join(" ")).toContain("name exact match");
+
+    const bidRoutingResults = searchSkills("投标响应", skills);
+    const lensRoutingResults = searchSkills("Zemax CAD 图纸", skills);
+    const reviewRoutingResults = searchSkills("PR 风险检查", skills);
+    const unrelatedResults = searchSkills("烘焙甜点菜单", skills);
+    const topResult = searchSkills("review", skills, { topK: 1, minScore: 0 });
+
+    expect(bidRoutingResults[0]).toMatchObject({
+      skill: expect.objectContaining({ path: "/skills/bid-writing" }),
+    });
+    expect(lensRoutingResults[0]).toMatchObject({
+      skill: expect.objectContaining({ path: "/skills/lens-drawing" }),
+    });
+    expect(reviewRoutingResults[0]).toMatchObject({
+      skill: expect.objectContaining({ path: "/skills/code-review" }),
+    });
+    expect(unrelatedResults).toEqual([]);
+    expect(topResult).toHaveLength(1);
+    for (const result of [...bidRoutingResults, ...lensRoutingResults, ...reviewRoutingResults]) {
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(1);
+    }
   });
 
   it("builds catalog-only context by default", async () => {
