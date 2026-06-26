@@ -125,12 +125,30 @@ function findLastUserMessage(messages: SkillBridgeMessage[]): string {
   return "";
 }
 
+function wrapSystemPatch(systemPatch: string): string {
+  return `<skillbridge_runtime>\n${systemPatch}\n</skillbridge_runtime>`;
+}
+
 function injectSystemPatch(messages: SkillBridgeMessage[], systemPatch: string): SkillBridgeMessage[] {
   if (!systemPatch) {
     return messages;
   }
 
-  return [{ role: "system", content: systemPatch }, ...messages];
+  const wrappedSystemPatch = wrapSystemPatch(systemPatch);
+  const firstSystemIndex = messages.findIndex((message) => message.role === "system");
+
+  if (firstSystemIndex === -1) {
+    return [{ role: "system", content: wrappedSystemPatch }, ...messages];
+  }
+
+  return messages.map((message, index) =>
+    index === firstSystemIndex
+      ? {
+          ...message,
+          content: `${message.content}\n\n${wrappedSystemPatch}`,
+        }
+      : message,
+  );
 }
 
 function appendSkillBridgeTools(tools: OpenAITool[] | undefined): OpenAITool[] {

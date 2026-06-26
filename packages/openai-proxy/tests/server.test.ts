@@ -82,12 +82,74 @@ description: 对代码改动进行审查、指出问题并给出建议
       expect(receivedBodies[0]).toMatchObject({
         model: "test-model",
       });
-      expect((receivedBodies[0] as { messages: Array<{ role: string; content: string }> }).messages[0]).toMatchObject({
+      const forwardedMessages = (receivedBodies[0] as { messages: Array<{ role: string; content: string }> }).messages;
+      const systemMessages = forwardedMessages.filter((message) => message.role === "system");
+
+      expect(systemMessages).toHaveLength(1);
+      expect(forwardedMessages[0]).toMatchObject({
         role: "system",
       });
-      expect((receivedBodies[0] as { messages: Array<{ role: string; content: string }> }).messages[0].content).toContain(
-        "# Selected Skill: 代码评审",
-      );
+      expect(forwardedMessages[0].content).toContain("existing system");
+      expect(forwardedMessages[0].content).toContain("<skillbridge_runtime>");
+      expect(forwardedMessages[0].content).toContain("# Selected Skill: 代码评审");
+      expect(forwardedMessages[0].content).toContain("</skillbridge_runtime>");
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
+
+  it("creates a wrapped systemPatch system message when none exists", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-no-system-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedBodies: unknown[] = [];
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+
+    const targetServer = createServer(async (request, response) => {
+      receivedBodies.push(JSON.parse(await readBody(request)));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ id: "chatcmpl-test", choices: [] }));
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const forwardedMessages = (receivedBodies[0] as { messages: Array<{ role: string; content: string }> }).messages;
+      const systemMessages = forwardedMessages.filter((message) => message.role === "system");
+
+      expect(systemMessages).toHaveLength(1);
+      expect(forwardedMessages[0].role).toBe("system");
+      expect(forwardedMessages[0].content).toContain("<skillbridge_runtime>");
+      expect(forwardedMessages[0].content).toContain("# Selected Skill: Code Review");
+      expect(forwardedMessages[0].content).toContain("</skillbridge_runtime>");
     } finally {
       proxyServer.close();
       targetServer.close();
