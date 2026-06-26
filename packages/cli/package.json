@@ -1,0 +1,17 @@
+{
+  "name": "@skillbridge/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "skillbridge": "./dist/index.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'lint not configured'"
+  }
+}

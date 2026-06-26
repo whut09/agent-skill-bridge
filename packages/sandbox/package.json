@@ -1,0 +1,11 @@
+{
+  "name": "@skillbridge/sandbox",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'lint not configured'"
+  }
+}
