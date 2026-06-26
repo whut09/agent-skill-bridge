@@ -1,5 +1,5 @@
 import { buildSkillContext } from "../context/index.js";
-import { scanSkillDirs } from "../parser/index.js";
+import { readSkillBody, scanSkillDirs } from "../parser/index.js";
 import { readSkillResource } from "../resources/index.js";
 import { searchSkills } from "../router/index.js";
 import type {
@@ -46,10 +46,12 @@ export class SkillBridgeRuntime {
   async prepare(input: SkillBridgePrepareInput): Promise<SkillBridgePrepareOutput> {
     const activeSkills = searchSkills(input.userMessage, this.skills);
     const selectedSkill = activeSkills[0]?.skill;
+    const selectedSkillBody = selectedSkill ? await readSkillBody(selectedSkill.path) : undefined;
     const context = await buildSkillContext({
       query: input.userMessage,
       skills: this.skills,
       selectedSkill,
+      skillBodies: selectedSkill && selectedSkillBody ? { [selectedSkill.path]: selectedSkillBody } : undefined,
       budget: input.budget,
     });
 

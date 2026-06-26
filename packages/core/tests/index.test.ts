@@ -251,7 +251,11 @@ description: 对代码改动进行审查、指出问题并给出建议
 # 核心指令
 
 - 审查代码
-- 关注风险`,
+- 关注风险
+
+## 核心工作流程
+
+- 读取完整技能说明`,
       "utf8",
     );
     await writeFile(path.join(skillDir, "references", "guide.md"), "guide", "utf8");
@@ -270,6 +274,7 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(prepared.toolInstructions).toContain("readResource");
     expect(prepared.toolInstructions).toContain("runScript");
     expect(prepared.systemPatch).toContain("# Selected Skill: 代码评审");
+    expect(prepared.systemPatch).toContain("核心工作流程");
   });
 
   it("exposes readResource and runScript methods", async () => {

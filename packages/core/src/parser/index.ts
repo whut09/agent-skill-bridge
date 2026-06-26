@@ -72,6 +72,11 @@ async function collectDirectoryFiles(skillDirectory: string, directoryName: stri
   return files.map((filePath) => toRelativeSkillPath(skillDirectory, filePath));
 }
 
+export async function readSkillBody(skillPath: string): Promise<string> {
+  const skillContent = await fs.readFile(path.join(skillPath, "SKILL.md"), "utf8");
+  return matter(skillContent).content;
+}
+
 export async function parseSkillDir(skillDirectory: string): Promise<SkillManifest> {
   const skillFilePath = path.join(skillDirectory, "SKILL.md");
   const skillContent = await fs.readFile(skillFilePath, "utf8");
