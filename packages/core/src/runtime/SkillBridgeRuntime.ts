@@ -43,6 +43,11 @@ export class SkillBridgeRuntime {
     return { skills: this.skills };
   }
 
+  getSkillByName(name: string): SkillManifest | undefined {
+    const normalizedName = name.trim().toLowerCase();
+    return this.skills.find((skill) => skill.name.trim().toLowerCase() === normalizedName);
+  }
+
   async prepare(input: SkillBridgePrepareInput): Promise<SkillBridgePrepareOutput> {
     const activeSkills = searchSkills(input.userMessage, this.skills);
     const selectedSkill = activeSkills[0]?.skill;

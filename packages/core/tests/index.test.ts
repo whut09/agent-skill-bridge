@@ -336,6 +336,7 @@ description: 对代码改动进行审查、指出问题并给出建议
 
     const runtime = new SkillBridgeRuntime([skillRoot]);
     const initResult = await runtime.init();
+    const selectedByName = runtime.getSkillByName("代码评审");
     const prepared = await runtime.prepare({
       messages: [{ role: "user", content: "代码评审" }],
       userMessage: "代码评审",
@@ -343,6 +344,7 @@ description: 对代码改动进行审查、指出问题并给出建议
     });
 
     expect(initResult.skills).toHaveLength(1);
+    expect(selectedByName?.path).toBe(skillDir);
     expect(prepared.activeSkills[0].skill.name).toBe("代码评审");
     expect(prepared.toolInstructions).toContain("readResource");
     expect(prepared.toolInstructions).toContain("runScript");

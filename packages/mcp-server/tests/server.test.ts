@@ -13,6 +13,7 @@ describe("mcp server", () => {
     expect(parseCliArgs(["node", "server.js", "--skill-dir", "./examples/skills", "--skill-dir", "./more"])).toEqual({
       skillDirs: ["./examples/skills", "./more"],
       enableScripts: false,
+      debug: false,
     });
   });
 
@@ -20,6 +21,15 @@ describe("mcp server", () => {
     expect(parseCliArgs(["node", "server.js", "--skill-dir", "./examples/skills", "--enable-scripts"])).toEqual({
       skillDirs: ["./examples/skills"],
       enableScripts: true,
+      debug: false,
+    });
+  });
+
+  it("parses --debug arguments", () => {
+    expect(parseCliArgs(["node", "server.js", "--skill-dir", "./examples/skills", "--debug"])).toEqual({
+      skillDirs: ["./examples/skills"],
+      enableScripts: false,
+      debug: true,
     });
   });
 });
