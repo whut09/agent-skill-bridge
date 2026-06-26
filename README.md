@@ -6,10 +6,6 @@ It works as an embeddable SDK, an MCP server, and an OpenAI-compatible proxy, so
 
 SkillBridge does not invent a new skill standard. It bridges existing Agent Skills into real agent execution loops.
 
-## 中文简介
-
-`agent-skill-bridge` 是一个面向已有 Agent 的通用 Skill 运行时。它让任何 Agent 无需重新实现 Skill 解析、路由、渐进加载、资源读取、脚本执行和审计逻辑，也能直接使用标准 `SKILL.md` 技能包。
-
 ## 项目定位
 
 你的项目核心不是：
