@@ -93,4 +93,98 @@ description: 对代码改动进行审查、指出问题并给出建议
       targetServer.close();
     }
   });
+
+  it("executes read_resource tool calls and sends a second target request", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-tools-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedBodies: Array<{
+      tools?: Array<{ function: { name: string } }>;
+      messages: Array<{ role: string; content?: string; tool_call_id?: string }>;
+    }> = [];
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "guide.md"), "resource guidance", "utf8");
+
+    const targetServer = createServer(async (request, response) => {
+      const requestBody = JSON.parse(await readBody(request));
+      receivedBodies.push(requestBody);
+      response.writeHead(200, { "content-type": "application/json" });
+
+      if (receivedBodies.length === 1) {
+        response.end(
+          JSON.stringify({
+            id: "chatcmpl-tool",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "call_read_1",
+                      type: "function",
+                      function: {
+                        name: "skillbridge_read_resource",
+                        arguments: JSON.stringify({
+                          skillName: "Code Review",
+                          resourcePath: "references/guide.md",
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      response.end(JSON.stringify({ id: "chatcmpl-final", choices: [{ message: { role: "assistant", content: "ok" } }] }));
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ id: "chatcmpl-final" });
+      expect(receivedBodies).toHaveLength(2);
+      expect(receivedBodies[0].tools?.map((tool) => tool.function.name)).toEqual(
+        expect.arrayContaining(["skillbridge_read_resource", "skillbridge_run_script"]),
+      );
+      const secondRequestToolMessage = receivedBodies[1].messages.find((message) => message.role === "tool");
+      expect(secondRequestToolMessage).toMatchObject({ tool_call_id: "call_read_1" });
+      expect(secondRequestToolMessage?.content).toContain("resource guidance");
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
 });

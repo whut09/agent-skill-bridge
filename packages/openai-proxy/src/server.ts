@@ -1,18 +1,92 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { SkillBridgeRuntime, type SkillBridgeMessage } from "@skillbridge/core";
+import {
+  SkillBridgeRuntime,
+  type LocalScriptExecutorResult,
+  type ResourceManagerResult,
+  type SkillBridgeMessage,
+  type SkillManifest,
+} from "@skillbridge/core";
 
 export type OpenAIProxyOptions = {
   targetBaseUrl?: string;
   targetApiKey?: string;
   skillDirs?: string[];
   fetchImpl?: typeof fetch;
+  maxToolIterations?: number;
+  enableScripts?: boolean;
 };
 
 export type OpenAIChatCompletionRequest = {
-  messages?: SkillBridgeMessage[];
+  messages?: OpenAIChatMessage[];
   stream?: boolean;
+  tools?: OpenAITool[];
   [key: string]: unknown;
 };
+
+export type OpenAIChatMessage = SkillBridgeMessage & {
+  tool_call_id?: string;
+  tool_calls?: OpenAIToolCall[];
+};
+
+type OpenAITool = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+type OpenAIToolCall = {
+  id: string;
+  type?: "function";
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+};
+
+type OpenAIChatCompletionResponse = {
+  choices?: Array<{
+    message?: OpenAIChatMessage;
+  }>;
+  [key: string]: unknown;
+};
+
+const skillBridgeTools: OpenAITool[] = [
+  {
+    type: "function",
+    function: {
+      name: "skillbridge_read_resource",
+      description: "Read a resource file from a named skill package.",
+      parameters: {
+        type: "object",
+        properties: {
+          skillName: { type: "string", description: "The skill name." },
+          resourcePath: { type: "string", description: "Path inside the skill package." },
+        },
+        required: ["skillName", "resourcePath"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skillbridge_run_script",
+      description: "Run a script from a named skill package. Disabled unless explicitly enabled.",
+      parameters: {
+        type: "object",
+        properties: {
+          skillName: { type: "string", description: "The skill name." },
+          scriptPath: { type: "string", description: "Path under scripts/ inside the skill package." },
+          args: { type: "array", items: { type: "string" } },
+          timeoutMs: { type: "number" },
+        },
+        required: ["skillName", "scriptPath"],
+      },
+    },
+  },
+];
 
 function getEnvSkillDirs(): string[] {
   const rawSkillDir = process.env.SKILLBRIDGE_SKILL_DIR;
@@ -59,6 +133,101 @@ function injectSystemPatch(messages: SkillBridgeMessage[], systemPatch: string):
   return [{ role: "system", content: systemPatch }, ...messages];
 }
 
+function appendSkillBridgeTools(tools: OpenAITool[] | undefined): OpenAITool[] {
+  const existingTools = tools ?? [];
+  const existingNames = new Set(existingTools.map((tool) => tool.function.name));
+  const missingTools = skillBridgeTools.filter((tool) => !existingNames.has(tool.function.name));
+  return [...existingTools, ...missingTools];
+}
+
+function getToolCalls(body: OpenAIChatCompletionResponse): OpenAIToolCall[] {
+  return body.choices?.flatMap((choice) => choice.message?.tool_calls ?? []) ?? [];
+}
+
+function parseToolArguments(rawArguments: string | undefined): Record<string, unknown> {
+  if (!rawArguments) {
+    return {};
+  }
+
+  const parsed = JSON.parse(rawArguments) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Tool arguments must be a JSON object.");
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function getStringArgument(argumentsObject: Record<string, unknown>, key: string): string {
+  const value = argumentsObject[key];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`Missing required tool argument: ${key}`);
+  }
+
+  return value;
+}
+
+function resolveSkill(runtime: SkillBridgeRuntime, skillName: string): SkillManifest {
+  const skill = runtime.getSkillByName(skillName);
+  if (!skill) {
+    throw new Error(`Skill not found by name: ${skillName}`);
+  }
+
+  return skill;
+}
+
+function normalizeToolResult(result: ResourceManagerResult | LocalScriptExecutorResult): unknown {
+  if ("type" in result && result.type === "binary") {
+    return {
+      ...result,
+      content: result.content.toString("base64"),
+      encoding: "base64",
+    };
+  }
+
+  return result;
+}
+
+async function executeSkillBridgeTool(
+  runtime: SkillBridgeRuntime,
+  toolCall: OpenAIToolCall,
+  enableScripts: boolean,
+): Promise<OpenAIChatMessage> {
+  const toolName = toolCall.function?.name;
+  const toolArguments = parseToolArguments(toolCall.function?.arguments);
+
+  let result: unknown;
+  if (toolName === "skillbridge_read_resource") {
+    const skill = resolveSkill(runtime, getStringArgument(toolArguments, "skillName"));
+    result = normalizeToolResult(
+      await runtime.readResource({
+        skillPath: skill.path,
+        resourcePath: getStringArgument(toolArguments, "resourcePath"),
+      }),
+    );
+  } else if (toolName === "skillbridge_run_script") {
+    const skill = resolveSkill(runtime, getStringArgument(toolArguments, "skillName"));
+    const args = Array.isArray(toolArguments.args)
+      ? toolArguments.args.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    const timeoutMs = typeof toolArguments.timeoutMs === "number" ? toolArguments.timeoutMs : undefined;
+    result = await runtime.runScript({
+      skill,
+      scriptPath: getStringArgument(toolArguments, "scriptPath"),
+      enableScripts,
+      timeoutMs,
+      args,
+    });
+  } else {
+    throw new Error(`Unsupported tool call: ${toolName ?? "unknown"}`);
+  }
+
+  return {
+    role: "tool",
+    tool_call_id: toolCall.id,
+    content: JSON.stringify(result),
+  };
+}
+
 async function forwardResponse(targetResponse: Response, response: ServerResponse): Promise<void> {
   response.writeHead(targetResponse.status, Object.fromEntries(targetResponse.headers.entries()));
 
@@ -78,6 +247,8 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
   const targetApiKey = options.targetApiKey ?? process.env.SKILLBRIDGE_TARGET_API_KEY;
   const skillDirs = options.skillDirs ?? getEnvSkillDirs();
   const fetchImpl = options.fetchImpl ?? fetch;
+  const maxToolIterations = options.maxToolIterations ?? 3;
+  const enableScripts = options.enableScripts ?? process.env.SKILLBRIDGE_ENABLE_SCRIPTS === "true";
   const runtime = new SkillBridgeRuntime(skillDirs);
 
   let initPromise: Promise<unknown> | undefined;
@@ -108,16 +279,47 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
       const proxiedPayload = {
         ...payload,
         messages: injectSystemPatch(messages, prepared.systemPatch),
+        tools: appendSkillBridgeTools(payload.tools),
       };
       const targetUrl = new URL("/v1/chat/completions", targetBaseUrl).toString();
-      const targetResponse = await fetchImpl(targetUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(targetApiKey ? { authorization: `Bearer ${targetApiKey}` } : {}),
-        },
-        body: JSON.stringify(proxiedPayload),
-      });
+      const sendTargetRequest = async (nextPayload: OpenAIChatCompletionRequest) =>
+        fetchImpl(targetUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(targetApiKey ? { authorization: `Bearer ${targetApiKey}` } : {}),
+          },
+          body: JSON.stringify(nextPayload),
+        });
+
+      let targetResponse = await sendTargetRequest(proxiedPayload);
+      if (payload.stream) {
+        await forwardResponse(targetResponse, response);
+        return;
+      }
+
+      for (let iteration = 0; iteration < maxToolIterations; iteration += 1) {
+        const responseBodyText = await targetResponse.text();
+        const responseBody = JSON.parse(responseBodyText || "{}") as OpenAIChatCompletionResponse;
+        const toolCalls = getToolCalls(responseBody);
+
+        if (toolCalls.length === 0) {
+          writeJson(response, targetResponse.status, responseBody);
+          return;
+        }
+
+        const assistantMessage = responseBody.choices?.[0]?.message;
+        if (!assistantMessage) {
+          writeJson(response, targetResponse.status, responseBody);
+          return;
+        }
+
+        const toolMessages = await Promise.all(
+          toolCalls.map((toolCall) => executeSkillBridgeTool(runtime, toolCall, enableScripts)),
+        );
+        proxiedPayload.messages = [...(proxiedPayload.messages ?? []), assistantMessage, ...toolMessages];
+        targetResponse = await sendTargetRequest(proxiedPayload);
+      }
 
       await forwardResponse(targetResponse, response);
     } catch (error) {
