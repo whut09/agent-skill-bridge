@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createRuntimeTraceEvent, createSkillPackage, scanSkillDirs } from "../src/index.js";
+import { createRuntimeTraceEvent, createSkillPackage, scanSkillDirs, searchSkills } from "../src/index.js";
 
 describe("core", () => {
   it("creates a skill package", () => {
@@ -61,5 +61,59 @@ describe("core", () => {
     await writeFile(path.join(skillDir, "SKILL.md"), `---\ndescription: Missing name\n---\n`, "utf8");
 
     await expect(scanSkillDirs([tempRoot])).rejects.toThrow(/name/);
+  });
+
+  it("searches skills by name description and keywords", () => {
+    const skills = [
+      {
+        name: "标书撰写",
+        description: "生成投标文件和标书内容",
+        path: "/skills/bid-writing",
+        frontmatter: {},
+        metadata: { keywords: ["标书", "投标", "商务"] },
+        references: [],
+        scripts: [],
+        assets: [],
+      },
+      {
+        name: "代码评审",
+        description: "对代码改动进行审查、指出问题并给出建议",
+        path: "/skills/code-review",
+        frontmatter: {},
+        metadata: { keywords: ["review", "代码评审", "PR"] },
+        references: [],
+        scripts: [],
+        assets: [],
+      },
+      {
+        name: "镜头出图",
+        description: "用于镜头出图和画面构图参考",
+        path: "/skills/lens-drawing",
+        frontmatter: {},
+        metadata: { keywords: ["镜头出图", "构图", "分镜"] },
+        references: [],
+        scripts: [],
+        assets: [],
+      },
+    ];
+
+    const bidResults = searchSkills("标书", skills);
+    const reviewResults = searchSkills("代码评审", skills);
+    const lensResults = searchSkills("镜头出图", skills);
+
+    expect(bidResults[0]).toMatchObject({
+      skill: expect.objectContaining({ name: "标书撰写" }),
+    });
+    expect(bidResults[0].reason.join(" ")).toContain("keywords matched");
+
+    expect(reviewResults[0]).toMatchObject({
+      skill: expect.objectContaining({ name: "代码评审" }),
+    });
+    expect(reviewResults[0].reason.join(" ")).toContain("name exact match");
+
+    expect(lensResults[0]).toMatchObject({
+      skill: expect.objectContaining({ name: "镜头出图" }),
+    });
+    expect(lensResults[0].reason.join(" ")).toContain("name exact match");
   });
 });
