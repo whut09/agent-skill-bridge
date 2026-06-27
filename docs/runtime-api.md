@@ -8,13 +8,13 @@ import { SkillBridgeRuntime } from "@skillbridge/core";
 const runtime = new SkillBridgeRuntime(["./examples/skills"]);
 await runtime.init();
 
-const prepared = await runtime.prepare({
-  messages: [{ role: "user", content: "review this PR" }],
-  userMessage: "review this PR",
-});
+const skills = runtime.listSkills();
+const activation = await runtime.activateSkill("review this PR");
+const resource = await runtime.readResource("Code Review", "references/guide.md");
 
-console.log(prepared.activeSkills);
-console.log(prepared.systemPatch);
+console.log(skills);
+console.log(activation.systemPatch);
+console.log(resource.content);
 ```
 
 ## SkillBridgeRuntime
@@ -37,7 +37,55 @@ Trace events:
 - `policy_scan_finding`
 - `scan_complete`
 
-### `prepare(input)`
+### L0 Discovery: `listSkills()`
+
+Returns a lightweight catalog for routing and UI:
+
+```ts
+const skills = runtime.listSkills();
+```
+
+Each item includes:
+
+- `id`
+- `name`
+- `description`
+- `keywords`
+- `capabilities`
+
+This layer does not load full `SKILL.md` bodies or resource contents.
+
+### L1 Activation: `activateSkill(query, options)`
+
+Routes a user task, loads only the selected `SKILL.md` body, and returns a reusable activation decision:
+
+```ts
+const decision = await runtime.activateSkill("review this PR", {
+  budget: 8000,
+});
+```
+
+`ActivationDecision` includes:
+
+- `runId`
+- `query`
+- `selected`
+- `selectedSkill`
+- `candidates`
+- `confidence`
+- `systemPatch`
+- `allowedTools`
+- `nextActions`
+
+`systemPatch` contains Level 0 catalog plus Level 1 selected skill instructions. It does not inline references, scripts, or assets.
+
+Trace events:
+
+- `search_start`
+- `skill_selected`
+- `context_built`
+
+### Compatibility: `prepare(input)`
 
 Searches active skills and builds progressive runtime context.
 
@@ -57,6 +105,7 @@ Returns:
 - `selectedSkill`
 - `activeSkills`
 - `toolInstructions`
+- `activationDecision`
 
 The context follows four loading levels:
 
@@ -67,17 +116,29 @@ The context follows four loading levels:
 
 `systemPatch` contains Levels 0 and 1 only. References, scripts, and assets remain available on `selectedSkill` and `progressiveLoading`, but their contents are not inlined into the prompt.
 
-Trace events:
-
-- `search_start`
-- `skill_selected`
-- `context_built`
-
 ### `getSkillByName(name)`
 
 Returns a scanned skill by exact case-insensitive name.
 
-### `readResource(input)`
+### L2 Resource Loading: `listResources(skillName)` and `readResource(...)`
+
+```ts
+const listing = runtime.listResources("Code Review");
+```
+
+Returns deferred files for the skill:
+
+- `references`
+- `scripts`
+- `assets`
+
+Read a resource by skill name:
+
+```ts
+await runtime.readResource("Code Review", "references/checklist.md");
+```
+
+The legacy object form remains supported:
 
 ```ts
 await runtime.readResource({
@@ -93,7 +154,17 @@ Trace event:
 - `policy_audit`
 - `resource_read`
 
-### `runScript(input)`
+### L3 Execution: `runScript(...)`
+
+Run a script by skill name:
+
+```ts
+await runtime.runScript("Code Review", "scripts/check.mjs", {
+  enableScripts: true,
+});
+```
+
+The legacy object form remains supported:
 
 ```ts
 await runtime.runScript({
@@ -166,11 +237,17 @@ const ruleDecision = await new RuleRouter().route({
 
 `ActivationDecision` contains:
 
+- `runId`: traceable runtime run id.
+- `query`: original user query.
 - `selected`: whether a skill should activate.
+- `selectedSkill`: lightweight selected skill identity.
 - `skill`: selected skill when available.
 - `candidates`: ranked candidate skills.
 - `confidence`: normalized confidence from `0` to `1`.
 - `reason`: concise routing explanation.
+- `systemPatch`: Level 0 + Level 1 runtime context.
+- `allowedTools`: tools allowed by the selected skill.
+- `nextActions`: suggested follow-up runtime operations.
 - `requiredResources`: resources the router expects to load.
 - `requiredTools`: tools the router expects to expose.
 

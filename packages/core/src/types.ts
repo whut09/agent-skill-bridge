@@ -46,14 +46,50 @@ export type SkillSearchResult = {
   reason: string[];
 };
 
+export type SkillDiscoveryResult = {
+  id: string;
+  name: string;
+  description: string;
+  keywords: string[];
+  capabilities: {
+    resources: boolean;
+    scripts: boolean;
+    assets: boolean;
+    allowedTools: string[];
+  };
+};
+
+export type RuntimeActivationCandidate = SkillSearchResult & {
+  skillId: string;
+  name: string;
+  reasons: string[];
+};
+
 export type ActivationDecision = {
+  runId: string;
+  query: string;
   selected: boolean;
+  selectedSkill?: {
+    id: string;
+    name: string;
+    path?: string;
+  };
   skill?: SkillManifest;
-  candidates: SkillSearchResult[];
+  candidates: RuntimeActivationCandidate[];
   confidence: number;
   reason: string;
+  systemPatch: string;
+  allowedTools: string[];
+  nextActions: Array<"readResource" | "runScript" | "askUser" | "none">;
   requiredResources: string[];
   requiredTools: string[];
+};
+
+export type SkillResourceListing = {
+  skillName: string;
+  references: string[];
+  scripts: string[];
+  assets: string[];
 };
 
 export type ResourceFileMetadata = {
@@ -167,6 +203,8 @@ export type SkillBridgeRuntimeRunScriptInput = Omit<LocalScriptExecutorInput, "s
   skill: SkillManifest;
   scriptPath: string;
 };
+
+export type SkillBridgeRuntimeRunScriptByNameOptions = Omit<LocalScriptExecutorInput, "skillPath" | "scriptPath">;
 
 export type RuntimeTraceEvent = {
   type: string;

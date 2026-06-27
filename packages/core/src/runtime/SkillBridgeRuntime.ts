@@ -18,14 +18,19 @@ import {
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type {
+  ActivationDecision,
   LocalScriptExecutorResult,
   ResourceManagerInput,
   ResourceManagerResult,
+  SkillBridgeRuntimeRunScriptByNameOptions,
   SkillBridgePrepareInput,
   SkillBridgePrepareOutput,
   SkillBridgeRuntimeInitResult,
   SkillBridgeRuntimeRunScriptInput,
+  SkillContext,
+  SkillDiscoveryResult,
   SkillManifest,
+  SkillResourceListing,
   RuntimeTraceEvent,
   RuntimeTraceRecord,
 } from "../types.js";
@@ -59,6 +64,30 @@ function buildToolInstructions(selectedSkill?: SkillManifest): string {
   }
 
   return lines.join("\n");
+}
+
+function createSkillId(skill: SkillManifest): string {
+  return skill.name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function inferNextActions(selectedSkill?: SkillManifest): Array<"readResource" | "runScript" | "askUser" | "none"> {
+  if (!selectedSkill) {
+    return ["none"];
+  }
+
+  const actions: Array<"readResource" | "runScript" | "askUser" | "none"> = [];
+  if (selectedSkill.references.length > 0 || selectedSkill.assets.length > 0) {
+    actions.push("readResource");
+  }
+  if (selectedSkill.scripts.length > 0) {
+    actions.push("runScript");
+  }
+
+  return actions.length > 0 ? actions : ["none"];
 }
 
 export class SkillBridgeRuntime {
@@ -112,13 +141,65 @@ export class SkillBridgeRuntime {
     return this.skills.find((skill) => skill.name.trim().toLowerCase() === normalizedName);
   }
 
+  listSkills(): SkillDiscoveryResult[] {
+    return this.skills.map((skill) => ({
+      id: createSkillId(skill),
+      name: skill.name,
+      description: skill.description,
+      keywords: skill.metadata?.keywords ?? [],
+      capabilities: {
+        resources: skill.references.length > 0 || skill.assets.length > 0,
+        scripts: skill.scripts.length > 0,
+        assets: skill.assets.length > 0,
+        allowedTools: skill.allowedTools ?? [],
+      },
+    }));
+  }
+
+  async activateSkill(query: string, options: { budget?: number } = {}): Promise<ActivationDecision> {
+    const { activationDecision } = await this.activateWithContext(query, options.budget);
+    return activationDecision;
+  }
+
+  listResources(skillName: string): SkillResourceListing {
+    const skill = this.requireSkillByName(skillName);
+    return {
+      skillName: skill.name,
+      references: [...skill.references],
+      scripts: [...skill.scripts],
+      assets: [...skill.assets],
+    };
+  }
+
   async prepare(input: SkillBridgePrepareInput): Promise<SkillBridgePrepareOutput> {
-    this.traceRecord = this.createTraceRecord(input.userMessage);
+    const { activationDecision, context, activeSkills, selectedSkill } = await this.activateWithContext(
+      input.userMessage,
+      input.budget,
+    );
+
+    return {
+      ...context,
+      activeSkills,
+      activationDecision,
+      toolInstructions: buildToolInstructions(selectedSkill),
+    };
+  }
+
+  private async activateWithContext(
+    query: string,
+    budget?: number,
+  ): Promise<{
+    activationDecision: ActivationDecision;
+    context: SkillContext;
+    activeSkills: ActivationDecision["candidates"];
+    selectedSkill?: SkillManifest;
+  }> {
+    this.traceRecord = this.createTraceRecord(query);
     this.traceRecord.events = [...this.traceEvents];
-    this.trace("search_start", "Searching for active skills.", { userMessage: input.userMessage });
-    const activationDecision = await routeSkills(input.userMessage, this.skills);
-    const activeSkills = activationDecision.candidates;
-    const selectedSkill = activationDecision.skill;
+    this.trace("search_start", "Searching for active skills.", { userMessage: query });
+    const routedDecision = await routeSkills(query, this.skills);
+    const activeSkills = routedDecision.candidates;
+    const selectedSkill = routedDecision.skill;
     this.traceRecord.selectedSkill = selectedSkill?.name;
     this.traceRecord.candidates = activeSkills.map((result) => ({
       name: result.skill.name,
@@ -127,15 +208,15 @@ export class SkillBridgeRuntime {
     }));
     this.trace("skill_selected", selectedSkill ? `Selected skill: ${selectedSkill.name}` : "No skill selected.", {
       skillName: selectedSkill?.name,
-      confidence: activationDecision.confidence,
+      confidence: routedDecision.confidence,
     });
     const selectedSkillBody = selectedSkill ? await readSkillBody(selectedSkill.path) : undefined;
     const context = await buildSkillContext({
-      query: input.userMessage,
+      query,
       skills: this.skills,
       selectedSkill,
       skillBodies: selectedSkill && selectedSkillBody ? { [selectedSkill.path]: selectedSkillBody } : undefined,
-      budget: input.budget,
+      budget,
     });
     this.trace("context_built", "Skill context built.", {
       selectedSkillName: selectedSkill?.name,
@@ -147,15 +228,48 @@ export class SkillBridgeRuntime {
       resourceTokens: 0,
     };
 
+    const activationDecision: ActivationDecision = {
+      ...routedDecision,
+      runId: this.traceRecord.runId,
+      query,
+      selectedSkill: selectedSkill
+        ? {
+            id: createSkillId(selectedSkill),
+            name: selectedSkill.name,
+          }
+        : undefined,
+      systemPatch: context.systemPatch,
+      allowedTools: selectedSkill?.allowedTools ?? routedDecision.allowedTools,
+      nextActions: inferNextActions(selectedSkill),
+    };
+
     return {
-      ...context,
-      activeSkills,
       activationDecision,
-      toolInstructions: buildToolInstructions(selectedSkill),
+      context,
+      activeSkills,
+      selectedSkill,
     };
   }
 
-  async readResource(input: ResourceManagerInput): Promise<ResourceManagerResult> {
+  async readResource(input: ResourceManagerInput): Promise<ResourceManagerResult>;
+  async readResource(skillName: string, resourcePath: string): Promise<ResourceManagerResult>;
+  async readResource(
+    inputOrSkillName: ResourceManagerInput | string,
+    resourcePath?: string,
+  ): Promise<ResourceManagerResult> {
+    let input: ResourceManagerInput;
+    if (typeof inputOrSkillName === "string") {
+      if (!resourcePath) {
+        throw new Error("resourcePath is required when reading by skill name.");
+      }
+      input = {
+        skillPath: this.requireSkillByName(inputOrSkillName).path,
+        resourcePath,
+      };
+    } else {
+      input = inputOrSkillName;
+    }
+
     const skill = this.findSkillByPath(input.skillPath);
     if (skill) {
       const decisions = [
@@ -185,7 +299,31 @@ export class SkillBridgeRuntime {
     return result;
   }
 
-  async runScript(input: SkillBridgeRuntimeRunScriptInput): Promise<LocalScriptExecutorResult> {
+  async runScript(input: SkillBridgeRuntimeRunScriptInput): Promise<LocalScriptExecutorResult>;
+  async runScript(
+    skillName: string,
+    scriptPath: string,
+    options?: SkillBridgeRuntimeRunScriptByNameOptions,
+  ): Promise<LocalScriptExecutorResult>;
+  async runScript(
+    inputOrSkillName: SkillBridgeRuntimeRunScriptInput | string,
+    scriptPath?: string,
+    options: SkillBridgeRuntimeRunScriptByNameOptions = {},
+  ): Promise<LocalScriptExecutorResult> {
+    let input: SkillBridgeRuntimeRunScriptInput;
+    if (typeof inputOrSkillName === "string") {
+      if (!scriptPath) {
+        throw new Error("scriptPath is required when running by skill name.");
+      }
+      input = {
+        ...options,
+        skill: this.requireSkillByName(inputOrSkillName),
+        scriptPath,
+      };
+    } else {
+      input = inputOrSkillName;
+    }
+
     this.trace("script_run_start", "Skill script execution started.", {
       skillName: input.skill.name,
       scriptPath: input.scriptPath,
@@ -288,6 +426,15 @@ export class SkillBridgeRuntime {
   private findSkillByPath(skillPath: string): SkillManifest | undefined {
     const normalizedSkillPath = path.resolve(skillPath);
     return this.skills.find((skill) => path.resolve(skill.path) === normalizedSkillPath);
+  }
+
+  private requireSkillByName(name: string): SkillManifest {
+    const skill = this.getSkillByName(name);
+    if (!skill) {
+      throw new Error(`Skill not found by name: ${name}`);
+    }
+
+    return skill;
   }
 
   private enforcePolicy(

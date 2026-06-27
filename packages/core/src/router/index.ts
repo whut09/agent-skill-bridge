@@ -128,26 +128,58 @@ function inferRequiredTools(skill: SkillManifest): string[] {
   return skill.allowedTools ?? [];
 }
 
-function createActivationDecision(candidates: SkillSearchResult[]): ActivationDecision {
-  const selectedCandidate = candidates[0];
+function createSkillId(skill: SkillManifest): string {
+  return skill.name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function decorateCandidate(result: SkillSearchResult) {
+  return {
+    ...result,
+    skillId: createSkillId(result.skill),
+    name: result.skill.name,
+    reasons: result.reason,
+  };
+}
+
+function createActivationDecision(query: string, candidates: SkillSearchResult[]): ActivationDecision {
+  const decoratedCandidates = candidates.map(decorateCandidate);
+  const selectedCandidate = decoratedCandidates[0];
 
   if (!selectedCandidate) {
     return {
+      runId: "",
+      query,
       selected: false,
-      candidates,
+      candidates: decoratedCandidates,
       confidence: 0,
       reason: "No skill candidate met the routing threshold.",
+      systemPatch: "",
+      allowedTools: [],
+      nextActions: ["none"],
       requiredResources: [],
       requiredTools: [],
     };
   }
 
   return {
+    runId: "",
+    query,
     selected: true,
+    selectedSkill: {
+      id: selectedCandidate.skillId,
+      name: selectedCandidate.skill.name,
+    },
     skill: selectedCandidate.skill,
-    candidates,
+    candidates: decoratedCandidates,
     confidence: selectedCandidate.score,
     reason: selectedCandidate.reason.join("; "),
+    systemPatch: "",
+    allowedTools: inferRequiredTools(selectedCandidate.skill),
+    nextActions: ["readResource"],
     requiredResources: inferRequiredResources(selectedCandidate.skill),
     requiredTools: inferRequiredTools(selectedCandidate.skill),
   };
@@ -156,7 +188,7 @@ function createActivationDecision(candidates: SkillSearchResult[]): ActivationDe
 export class RuleRouter implements SkillRouter {
   route(input: SkillRouteInput): ActivationDecision {
     const candidates = searchSkills(input.query, input.skills, input.options);
-    return createActivationDecision(candidates);
+    return createActivationDecision(input.query, candidates);
   }
 }
 
@@ -166,10 +198,15 @@ export class EmbeddingRouter implements SkillRouter {
   async route(input: SkillRouteInput): Promise<ActivationDecision> {
     if (!this.options.route) {
       return {
+        runId: "",
+        query: input.query,
         selected: false,
-        candidates: input.candidates ?? [],
+        candidates: (input.candidates ?? []).map(decorateCandidate),
         confidence: 0,
         reason: "EmbeddingRouter is not configured.",
+        systemPatch: "",
+        allowedTools: [],
+        nextActions: ["none"],
         requiredResources: [],
         requiredTools: [],
       };
@@ -185,10 +222,15 @@ export class LlmRouter implements SkillRouter {
   async route(input: SkillRouteInput): Promise<ActivationDecision> {
     if (!this.options.route) {
       return {
+        runId: "",
+        query: input.query,
         selected: false,
-        candidates: input.candidates ?? [],
+        candidates: (input.candidates ?? []).map(decorateCandidate),
         confidence: 0,
         reason: "LlmRouter is not configured.",
+        systemPatch: "",
+        allowedTools: [],
+        nextActions: ["none"],
         requiredResources: [],
         requiredTools: [],
       };

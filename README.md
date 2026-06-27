@@ -159,14 +159,14 @@ SkillBridge is a progressive runtime, not a prompt concatenator.
 
 中文说明：SkillBridge 不会把 references、scripts、assets 一次性塞进系统提示。它先用轻量目录做路由，只在命中技能后加载该技能的 `SKILL.md` 正文；长文档、表单、检查清单、脚本和二进制资源都通过工具按需读取或执行。
 
-Useful runtime methods:
+Useful runtime layers:
 
-- `init()` scans skill directories.
-- `prepare()` searches skills and builds context.
-- `getSkillByName(name)` resolves a scanned skill by name.
-- `readResource({ skillPath, resourcePath })` reads a skill file safely.
-- `runScript({ skill, scriptPath, enableScripts: true })` runs a script under `scripts/`.
-- `getTrace()` and `clearTrace()` inspect or reset runtime trace events.
+- L0 Discovery: `listSkills()` returns only `name`, `description`, `keywords`, and capabilities.
+- L1 Activation: `activateSkill(query)` returns `ActivationDecision`, `systemPatch`, candidates, confidence, allowed tools, and next actions.
+- L2 Resource Loading: `listResources(skillName)` and `readResource(skillName, resourcePath)` defer reference files until needed.
+- L3 Execution: `runScript(skillName, scriptPath, options)` runs approved scripts only when explicitly enabled.
+- Compatibility: `prepare()` still returns the legacy SDK shape, and object-form `readResource()` / `runScript()` remain supported.
+- Trace: `getTrace()` and `clearTrace()` inspect or reset runtime trace events.
 
 ## Search Behavior
 
@@ -185,10 +185,16 @@ For reusable routing decisions, use `routeSkills()` or `RuleRouter`. They return
 
 ```ts
 {
+  runId: "run_xxx",
+  query: "PR risk review",
   selected: true,
-  skill,
-  candidates,
+  selectedSkill: { id: "code-review", name: "Code Review" },
+  skill, // compatibility: full selected manifest
+  candidates, // compatibility: ranked SkillSearchResult[] with skillId/name/reasons
   confidence: 0.82,
+  systemPatch: "# Skill Catalog...\n\n# Selected Skill...",
+  allowedTools: ["readResource"],
+  nextActions: ["readResource"],
   reason: "keywords matched: PR, risk",
   requiredResources: [],
   requiredTools: []

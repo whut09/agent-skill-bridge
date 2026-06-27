@@ -496,6 +496,89 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(runtime.getTrace()).toEqual([]);
   });
 
+  it("exposes progressive runtime layers by skill name", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-layers-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+description: Review PR risk
+allowed-tools:
+  - readResource
+  - runScript
+metadata:
+  keywords: code review, PR, risk
+---
+
+# Code Review
+
+## Core Workflow
+
+Check correctness, regression risk, and missing tests.`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "guide.md"), "named resource", "utf8");
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("named script");`, "utf8");
+
+    const runtime = new SkillBridgeRuntime([skillRoot]);
+    await runtime.init();
+
+    const discovery = runtime.listSkills();
+    const activation = await runtime.activateSkill("PR risk", { budget: 700 });
+    const resources = runtime.listResources("Code Review");
+    const resource = await runtime.readResource("Code Review", "references/guide.md");
+    const script = await runtime.runScript("Code Review", "scripts/echo.mjs", {
+      enableScripts: true,
+      timeoutMs: 5000,
+    });
+
+    expect(discovery).toEqual([
+      expect.objectContaining({
+        id: "code-review",
+        name: "Code Review",
+        description: "Review PR risk",
+        keywords: ["code review", "PR", "risk"],
+        capabilities: expect.objectContaining({
+          resources: true,
+          scripts: true,
+          allowedTools: ["readResource", "runScript"],
+        }),
+      }),
+    ]);
+    expect(activation).toMatchObject({
+      runId: expect.stringMatching(/^run_/),
+      query: "PR risk",
+      selected: true,
+      selectedSkill: { id: "code-review", name: "Code Review" },
+      skill: expect.objectContaining({ name: "Code Review" }),
+      confidence: expect.any(Number),
+      systemPatch: expect.stringContaining("Core Workflow"),
+      allowedTools: ["readResource", "runScript"],
+      nextActions: expect.arrayContaining(["readResource", "runScript"]),
+      candidates: [
+        expect.objectContaining({
+          skillId: "code-review",
+          name: "Code Review",
+          reasons: expect.any(Array),
+          skill: expect.objectContaining({ name: "Code Review" }),
+        }),
+      ],
+    });
+    expect(resources).toEqual({
+      skillName: "Code Review",
+      references: ["references/guide.md"],
+      scripts: ["scripts/echo.mjs"],
+      assets: [],
+    });
+    expect(resource).toMatchObject({ type: "text", content: "named resource" });
+    expect(script.stdout).toContain("named script");
+  });
+
   it("enforces runtime read permissions", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-policy-read-"));
     const skillRoot = path.join(tempRoot, "skills");
