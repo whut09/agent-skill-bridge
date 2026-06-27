@@ -7,6 +7,7 @@ import {
   scanSkillDirs,
   searchSkills,
   type ResourceManagerResult,
+  type RuntimeTraceRecord,
   type SkillManifest,
 } from "@skillbridge/core";
 import { Command } from "commander";
@@ -39,6 +40,36 @@ function serializeResource(result: ResourceManagerResult) {
   }
 
   return result;
+}
+
+function explainTrace(record: RuntimeTraceRecord): string {
+  const lines = [
+    `Run: ${record.runId}`,
+    `User message: ${record.userMessage || "(none)"}`,
+    `Selected skill: ${record.selectedSkill ?? "(none)"}`,
+    "",
+    "Candidates:",
+    ...(record.candidates.length > 0
+      ? record.candidates.map((candidate) => `- ${candidate.name} score=${candidate.score.toFixed(2)} reason=${candidate.reason}`)
+      : ["- none"]),
+    "",
+    "Context:",
+    `- catalogTokens: ${record.context.catalogTokens}`,
+    `- skillTokens: ${record.context.skillTokens}`,
+    `- resourceTokens: ${record.context.resourceTokens}`,
+    "",
+    "Tools:",
+    ...(record.tools.length > 0
+      ? record.tools.map((tool) => `- ${tool.name}${tool.path ? ` ${tool.path}` : ""} allowed=${tool.allowed}${tool.reason ? ` reason=${tool.reason}` : ""}`)
+      : ["- none"]),
+    "",
+    "Scripts:",
+    ...(record.scripts.length > 0
+      ? record.scripts.map((script) => `- ${script.path} allowed=${script.allowed}${script.reason ? ` reason=${script.reason}` : ""}`)
+      : ["- none"]),
+  ];
+
+  return `${lines.join("\n")}\n`;
 }
 
 export function createCliProgram(): Command {
@@ -173,10 +204,31 @@ export function createCliProgram(): Command {
   program
     .command("trace")
     .argument("[path]", "path to a skill root directory", ".")
-    .description("Print runtime trace events for a skill directory scan")
-    .action(async (skillRoot: string) => {
+    .description("Print runtime trace events or an explainable trace record")
+    .option("--query <query>", "user task query to activate before printing trace")
+    .option("--last", "print the last standard trace record", false)
+    .option("--json", "print the standard trace record as JSON", false)
+    .option("--explain", "print a human-readable trace explanation", false)
+    .action(async (skillRoot: string, options: { query?: string; last: boolean; json: boolean; explain: boolean }) => {
       const runtime = new SkillBridgeRuntime([skillRoot]);
       await runtime.init();
+      if (options.query) {
+        await runtime.prepare({
+          messages: [{ role: "user", content: options.query }],
+          userMessage: options.query,
+        });
+      }
+
+      if (options.explain) {
+        process.stdout.write(explainTrace(runtime.getTraceRecord()));
+        return;
+      }
+
+      if (options.last || options.json) {
+        writeJson(runtime.getTraceRecord());
+        return;
+      }
+
       writeJson(runtime.getTrace());
     });
 

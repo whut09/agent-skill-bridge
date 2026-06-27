@@ -174,3 +174,39 @@ export type RuntimeTraceEvent = {
   timestamp: string;
   metadata?: Record<string, unknown>;
 };
+
+export type RuntimeTraceCandidate = {
+  name: string;
+  score: number;
+  reason: string;
+};
+
+export type RuntimeTraceContext = {
+  catalogTokens: number;
+  skillTokens: number;
+  resourceTokens: number;
+};
+
+export type RuntimeTraceTool = {
+  name: string;
+  path?: string;
+  allowed: boolean;
+  reason?: string;
+};
+
+export type RuntimeTraceScript = {
+  path: string;
+  allowed: boolean;
+  reason?: string;
+};
+
+export type RuntimeTraceRecord = {
+  runId: string;
+  userMessage: string;
+  selectedSkill?: string;
+  candidates: RuntimeTraceCandidate[];
+  context: RuntimeTraceContext;
+  tools: RuntimeTraceTool[];
+  scripts: RuntimeTraceScript[];
+  events: RuntimeTraceEvent[];
+};

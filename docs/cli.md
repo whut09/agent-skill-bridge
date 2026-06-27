@@ -92,6 +92,17 @@ Options:
 
 ```bash
 pnpm skillbridge trace examples/skills
+pnpm skillbridge trace examples/skills --query "PR risk" --json
+pnpm skillbridge trace examples/skills --query "PR risk" --explain
 ```
 
-Scans skills and prints runtime trace events.
+Scans skills and prints runtime trace events by default.
+
+Options:
+
+- `--query <query>` activates the best skill before printing trace output.
+- `--last` prints the last standard trace record for this command.
+- `--json` prints the standard trace record as JSON.
+- `--explain` prints a human-readable trace explanation.
+
+The standard trace record includes `runId`, `userMessage`, `selectedSkill`, scored candidates, context token estimates, tool decisions, script decisions, and raw events.

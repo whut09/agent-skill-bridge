@@ -129,4 +129,22 @@ describe("cli package", () => {
     expect(output).toContain("scan_start");
     expect(output).toContain("scan_complete");
   });
+
+  it("prints explainable trace records", async () => {
+    const { skillRoot } = await createFixtureSkillRoot();
+    const jsonOutput = parseJsonOutput(await runCli(["trace", skillRoot, "--query", "PR risk", "--json"])) as {
+      runId: string;
+      selectedSkill: string;
+      candidates: Array<{ name: string; score: number }>;
+      context: { catalogTokens: number; skillTokens: number; resourceTokens: number };
+    };
+    const explainOutput = await runCli(["trace", skillRoot, "--query", "PR risk", "--explain"]);
+
+    expect(jsonOutput.runId).toMatch(/^run_/);
+    expect(jsonOutput.selectedSkill).toBe("Code Review");
+    expect(jsonOutput.candidates[0]).toMatchObject({ name: "Code Review", score: expect.any(Number) });
+    expect(jsonOutput.context.skillTokens).toBeGreaterThan(0);
+    expect(explainOutput).toContain("Selected skill: Code Review");
+    expect(explainOutput).toContain("Context:");
+  });
 });

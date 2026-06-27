@@ -112,11 +112,27 @@ Trace events:
 - `script_run_complete`
 - `script_run_failed`
 
-### `getTrace()` and `clearTrace()`
+### `getTraceRecord()`, `getTrace()`, and `clearTrace()`
 
 ```ts
+const record = runtime.getTraceRecord();
 const events = runtime.getTrace();
 runtime.clearTrace();
+```
+
+`getTraceRecord()` returns the explainable audit shape:
+
+```ts
+{
+  runId: "run_xxx",
+  userMessage: "review this PR",
+  selectedSkill: "Code Review",
+  candidates: [{ name: "Code Review", score: 0.91, reason: "keywords matched" }],
+  context: { catalogTokens: 120, skillTokens: 900, resourceTokens: 0 },
+  tools: [{ name: "readResource", path: "references/checklist.md", allowed: true }],
+  scripts: [{ path: "scripts/check.mjs", allowed: false, reason: "scripts disabled" }],
+  events
+}
 ```
 
 Trace events include `type`, `message`, `timestamp`, and optional `metadata`.

@@ -258,9 +258,11 @@ x-skillbridge-trace-id: <uuid>
 skillbridge doctor
 skillbridge scan ./examples/skills
 skillbridge trace ./examples/skills
+skillbridge trace ./examples/skills --query "PR risk" --json
+skillbridge trace ./examples/skills --query "PR risk" --explain
 ```
 
-`skillbridge trace` scans the given skill directory and prints runtime trace events as JSON.
+`skillbridge trace` scans the given skill directory and prints runtime trace events by default. Use `--json` or `--last` for the standard audit record, and `--explain` for a human-readable run explanation.
 
 ## Trace Events
 
@@ -279,6 +281,17 @@ skillbridge trace ./examples/skills
 - `script_run_failed`
 
 Trace events include timestamps and optional metadata.
+
+For enterprise audit workflows, `SkillBridgeRuntime.getTraceRecord()` also returns:
+
+- `runId`
+- `userMessage`
+- `selectedSkill`
+- scored `candidates`
+- context token estimates
+- tool allow/deny decisions
+- script allow/deny decisions
+- raw trace events
 
 ## Safety Defaults
 

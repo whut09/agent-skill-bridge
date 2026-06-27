@@ -7,6 +7,7 @@ export type {
   ResourceManagerResult,
   ResourceManagerTextResult,
   RuntimeTraceEvent,
+  RuntimeTraceRecord,
   ActivationDecision,
   SkillBridgeMessage,
   SkillBridgePrepareInput,

@@ -15,6 +15,7 @@ import {
   type PolicyDecision,
   type TrustLevel,
 } from "@skillbridge/policy";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type {
   LocalScriptExecutorResult,
@@ -26,6 +27,7 @@ import type {
   SkillBridgeRuntimeRunScriptInput,
   SkillManifest,
   RuntimeTraceEvent,
+  RuntimeTraceRecord,
 } from "../types.js";
 import { executeLocalScript } from "./localScriptExecutor.js";
 import { createRuntimeTraceEvent } from "./trace.js";
@@ -34,6 +36,14 @@ export type SkillBridgeRuntimePolicyOptions = {
   allowlist?: AllowlistPolicy;
   minimumTrustForScripts?: TrustLevel;
 };
+
+function estimateTokens(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+
+  return Math.ceil(value.length / 4);
+}
 
 function buildToolInstructions(selectedSkill?: SkillManifest): string {
   const lines = [
@@ -60,13 +70,33 @@ export class SkillBridgeRuntime {
 
   private traceEvents: RuntimeTraceEvent[] = [];
 
+  private traceRecord: RuntimeTraceRecord = this.createTraceRecord("");
+
   constructor(skillDirs: string[], policy: SkillBridgeRuntimePolicyOptions = {}) {
     this.skillDirs = skillDirs;
     this.policy = policy;
   }
 
   private trace(type: string, message: string, metadata?: Record<string, unknown>): void {
-    this.traceEvents.push(createRuntimeTraceEvent(type, message, metadata));
+    const event = createRuntimeTraceEvent(type, message, metadata);
+    this.traceEvents.push(event);
+    this.traceRecord.events.push(event);
+  }
+
+  private createTraceRecord(userMessage: string): RuntimeTraceRecord {
+    return {
+      runId: `run_${randomUUID()}`,
+      userMessage,
+      candidates: [],
+      context: {
+        catalogTokens: 0,
+        skillTokens: 0,
+        resourceTokens: 0,
+      },
+      tools: [],
+      scripts: [],
+      events: [],
+    };
   }
 
   async init(): Promise<SkillBridgeRuntimeInitResult> {
@@ -83,10 +113,18 @@ export class SkillBridgeRuntime {
   }
 
   async prepare(input: SkillBridgePrepareInput): Promise<SkillBridgePrepareOutput> {
+    this.traceRecord = this.createTraceRecord(input.userMessage);
+    this.traceRecord.events = [...this.traceEvents];
     this.trace("search_start", "Searching for active skills.", { userMessage: input.userMessage });
     const activationDecision = await routeSkills(input.userMessage, this.skills);
     const activeSkills = activationDecision.candidates;
     const selectedSkill = activationDecision.skill;
+    this.traceRecord.selectedSkill = selectedSkill?.name;
+    this.traceRecord.candidates = activeSkills.map((result) => ({
+      name: result.skill.name,
+      score: result.score,
+      reason: result.reason.join("; "),
+    }));
     this.trace("skill_selected", selectedSkill ? `Selected skill: ${selectedSkill.name}` : "No skill selected.", {
       skillName: selectedSkill?.name,
       confidence: activationDecision.confidence,
@@ -103,6 +141,11 @@ export class SkillBridgeRuntime {
       selectedSkillName: selectedSkill?.name,
       systemPatchLength: context.systemPatch.length,
     });
+    this.traceRecord.context = {
+      catalogTokens: estimateTokens(context.catalog),
+      skillTokens: estimateTokens(context.selectedSkill?.body),
+      resourceTokens: 0,
+    };
 
     return {
       ...context,
@@ -115,11 +158,20 @@ export class SkillBridgeRuntime {
   async readResource(input: ResourceManagerInput): Promise<ResourceManagerResult> {
     const skill = this.findSkillByPath(input.skillPath);
     if (skill) {
-      this.enforcePolicy("read_resource", skill, [
+      const decisions = [
         checkToolAllowed(skill, "readResource"),
         checkReadPermission(skill.permissions, input.resourcePath),
-      ], {
+      ];
+      this.recordToolDecision("readResource", input.resourcePath, decisions);
+      this.enforcePolicy("read_resource", skill, decisions, {
         resourcePath: input.resourcePath,
+      });
+    } else {
+      this.traceRecord.tools.push({
+        name: "readResource",
+        path: input.resourcePath,
+        allowed: true,
+        reason: "Allowed by resource path boundary.",
       });
     }
 
@@ -129,6 +181,7 @@ export class SkillBridgeRuntime {
       resourcePath: input.resourcePath,
       type: result.type,
     });
+    this.traceRecord.context.resourceTokens += result.type === "text" ? estimateTokens(result.content) : 0;
     return result;
   }
 
@@ -139,7 +192,7 @@ export class SkillBridgeRuntime {
     });
 
     try {
-      this.enforcePolicy("run_script", input.skill, [
+      const decisions = [
         checkToolAllowed(input.skill, "runScript"),
         checkExecutePermission(input.skill.permissions),
         checkTrustLevel(
@@ -147,7 +200,9 @@ export class SkillBridgeRuntime {
           this.policy.minimumTrustForScripts ?? "local",
         ),
         checkScriptAllowed(this.policy.allowlist, input.scriptPath),
-      ], {
+      ];
+      this.recordScriptDecision(input.scriptPath, decisions);
+      this.enforcePolicy("run_script", input.skill, decisions, {
         scriptPath: input.scriptPath,
       });
 
@@ -166,6 +221,7 @@ export class SkillBridgeRuntime {
       });
       return result;
     } catch (error) {
+      this.recordScriptFailure(input.scriptPath, error instanceof Error ? error.message : String(error));
       this.trace("script_run_failed", "Skill script execution failed.", {
         skillName: input.skill.name,
         scriptPath: input.scriptPath,
@@ -179,8 +235,54 @@ export class SkillBridgeRuntime {
     return [...this.traceEvents];
   }
 
+  getTraceRecord(): RuntimeTraceRecord {
+    return {
+      ...this.traceRecord,
+      candidates: [...this.traceRecord.candidates],
+      context: { ...this.traceRecord.context },
+      tools: [...this.traceRecord.tools],
+      scripts: [...this.traceRecord.scripts],
+      events: [...this.traceRecord.events],
+    };
+  }
+
   clearTrace(): void {
     this.traceEvents = [];
+    this.traceRecord = this.createTraceRecord("");
+  }
+
+  private recordToolDecision(name: string, resourcePath: string, decisions: PolicyDecision[]): void {
+    const deniedDecision = decisions.find((decision) => !decision.allowed);
+    this.traceRecord.tools.push({
+      name,
+      path: resourcePath,
+      allowed: !deniedDecision,
+      reason: deniedDecision?.reason ?? "Allowed by runtime policy.",
+    });
+  }
+
+  private recordScriptDecision(scriptPath: string, decisions: PolicyDecision[]): void {
+    const deniedDecision = decisions.find((decision) => !decision.allowed);
+    this.traceRecord.scripts.push({
+      path: scriptPath,
+      allowed: !deniedDecision,
+      reason: deniedDecision?.reason ?? "Allowed by runtime policy.",
+    });
+  }
+
+  private recordScriptFailure(scriptPath: string, reason: string): void {
+    const existing = this.traceRecord.scripts.find((entry) => entry.path === scriptPath);
+    if (existing) {
+      existing.allowed = false;
+      existing.reason = reason;
+      return;
+    }
+
+    this.traceRecord.scripts.push({
+      path: scriptPath,
+      allowed: false,
+      reason,
+    });
   }
 
   private findSkillByPath(skillPath: string): SkillManifest | undefined {

@@ -430,6 +430,17 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(runtime.getTrace().map((event) => event.type)).toEqual(
       expect.arrayContaining(["scan_start", "scan_complete", "search_start", "skill_selected", "context_built"]),
     );
+    expect(runtime.getTraceRecord()).toMatchObject({
+      runId: expect.stringMatching(/^run_/),
+      userMessage: "代码评审",
+      selectedSkill: "代码评审",
+      candidates: [expect.objectContaining({ name: "代码评审", score: expect.any(Number) })],
+      context: {
+        catalogTokens: expect.any(Number),
+        skillTokens: expect.any(Number),
+        resourceTokens: 0,
+      },
+    });
   });
 
   it("exposes readResource and runScript methods", async () => {
@@ -468,6 +479,11 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(resource).toMatchObject({ type: "text", content: "hello resource" });
     expect(scriptResult.stdout).toContain("hello from runtime");
     expect(scriptResult.exitCode).toBe(0);
+    expect(runtime.getTraceRecord()).toMatchObject({
+      tools: [expect.objectContaining({ name: "readResource", path: "references/guide.md", allowed: true })],
+      scripts: [expect.objectContaining({ path: "scripts/echo.mjs", allowed: true })],
+      context: expect.objectContaining({ resourceTokens: expect.any(Number) }),
+    });
     expect(runtime.getTrace().map((event) => event.type)).toEqual(
       expect.arrayContaining(["resource_read", "script_run_start", "script_run_complete"]),
     );
