@@ -13,9 +13,12 @@ export type OpenAIProxyOptions = {
   targetApiKey?: string;
   skillDirs?: string[];
   fetchImpl?: typeof fetch;
+  mode?: OpenAIProxyMode;
   maxToolIterations?: number;
   enableScripts?: boolean;
 };
+
+export type OpenAIProxyMode = "prompt" | "tools" | "loop";
 
 export type OpenAIChatCompletionRequest = {
   messages?: OpenAIChatMessage[];
@@ -164,6 +167,22 @@ function appendSkillBridgeTools(tools: OpenAITool[] | undefined): OpenAITool[] {
   return [...existingTools, ...missingTools];
 }
 
+function readProxyMode(value: unknown): OpenAIProxyMode {
+  if (value === "prompt" || value === "tools" || value === "loop") {
+    return value;
+  }
+
+  return "loop";
+}
+
+function shouldExposeTools(mode: OpenAIProxyMode): boolean {
+  return mode === "tools" || mode === "loop";
+}
+
+function shouldExecuteToolLoop(mode: OpenAIProxyMode): boolean {
+  return mode === "loop";
+}
+
 function getToolCalls(body: OpenAIChatCompletionResponse): OpenAIToolCall[] {
   return body.choices?.flatMap((choice) => choice.message?.tool_calls ?? []) ?? [];
 }
@@ -275,6 +294,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
   const targetApiKey = options.targetApiKey ?? process.env.SKILLBRIDGE_TARGET_API_KEY;
   const skillDirs = options.skillDirs ?? getEnvSkillDirs();
   const fetchImpl = options.fetchImpl ?? fetch;
+  const mode = options.mode ?? readProxyMode(process.env.SKILLBRIDGE_PROXY_MODE);
   const maxToolIterations = options.maxToolIterations ?? 3;
   const enableScripts = options.enableScripts ?? process.env.SKILLBRIDGE_ENABLE_SCRIPTS === "true";
   const runtime = new SkillBridgeRuntime(skillDirs);
@@ -310,7 +330,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
       const proxiedPayload = {
         ...payload,
         messages: injectSystemPatch(messages, prepared.systemPatch),
-        tools: appendSkillBridgeTools(payload.tools),
+        tools: shouldExposeTools(mode) ? appendSkillBridgeTools(payload.tools) : payload.tools,
       };
       const targetUrl = new URL("/v1/chat/completions", targetBaseUrl).toString();
       const sendTargetRequest = async (nextPayload: OpenAIChatCompletionRequest) =>
@@ -324,7 +344,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
         });
 
       let targetResponse = await sendTargetRequest(proxiedPayload);
-      if (payload.stream) {
+      if (payload.stream || !shouldExecuteToolLoop(mode)) {
         await forwardResponse(targetResponse, response, traceHeaders);
         return;
       }

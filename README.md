@@ -203,7 +203,11 @@ node packages/mcp-server/dist/server.js --skill-dir ./examples/skills --enable-s
 
 ## OpenAI Proxy
 
-The proxy accepts OpenAI-compatible `/v1/chat/completions` requests, injects selected Skill context into the first system message, and forwards the request to a target OpenAI-compatible endpoint.
+The proxy accepts OpenAI-compatible `/v1/chat/completions` requests and can run as a prompt injector, tool-exposing proxy, or full SkillBridge loop executor.
+
+```text
+Existing Agent -> OpenAI Proxy -> SkillBridge Loop -> Target LLM
+```
 
 Environment variables:
 
@@ -211,8 +215,15 @@ Environment variables:
 export SKILLBRIDGE_TARGET_BASE_URL="https://api.openai.com"
 export SKILLBRIDGE_TARGET_API_KEY="sk-..."
 export SKILLBRIDGE_SKILL_DIR="./examples/skills"
+export SKILLBRIDGE_PROXY_MODE="loop"
 export SKILLBRIDGE_ENABLE_SCRIPTS="false"
 ```
+
+Proxy modes:
+
+- `prompt`: inject selected `systemPatch` only.
+- `tools`: inject `systemPatch` and append OpenAI tools for the external agent to execute.
+- `loop`: inject `systemPatch`, append tools, execute SkillBridge tool calls locally, and call the target model again. This is the default.
 
 Runtime context is wrapped in:
 
@@ -224,12 +235,12 @@ Runtime context is wrapped in:
 
 If a system message already exists, the proxy appends the wrapped context to it. Otherwise it creates a new system message.
 
-The proxy also appends OpenAI tools:
+In `tools` and `loop` modes, the proxy appends OpenAI tools:
 
 - `skillbridge_read_resource`
 - `skillbridge_run_script`
 
-When the model returns tool calls, the proxy executes supported SkillBridge tools locally, appends tool messages, and calls the target model again. Tool loop iterations are capped by `maxToolIterations`, default `3`.
+In `loop` mode, when the model returns tool calls, the proxy executes supported SkillBridge tools locally, appends tool messages, and calls the target model again. Tool loop iterations are capped by `maxToolIterations`, default `3`.
 
 Script execution is disabled unless `SKILLBRIDGE_ENABLE_SCRIPTS=true` or the proxy is created with `enableScripts: true`.
 

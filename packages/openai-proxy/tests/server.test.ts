@@ -252,4 +252,136 @@ metadata:
       targetServer.close();
     }
   });
+
+  it("prompt mode injects context without exposing SkillBridge tools", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-prompt-mode-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedBodies: Array<{ tools?: unknown[]; messages: Array<{ role: string; content?: string }> }> = [];
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+
+    const targetServer = createServer(async (request, response) => {
+      receivedBodies.push(JSON.parse(await readBody(request)));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ id: "chatcmpl-prompt", choices: [] }));
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+      mode: "prompt",
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(receivedBodies).toHaveLength(1);
+      expect(receivedBodies[0].tools).toBeUndefined();
+      expect(receivedBodies[0].messages[0]).toMatchObject({ role: "system" });
+      expect(receivedBodies[0].messages[0].content).toContain("<skillbridge_runtime>");
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
+
+  it("tools mode exposes tools without executing returned tool calls", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-tools-mode-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedBodies: Array<{ tools?: Array<{ function: { name: string } }> }> = [];
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+
+    const targetServer = createServer(async (request, response) => {
+      receivedBodies.push(JSON.parse(await readBody(request)));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id: "chatcmpl-tool-call",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    id: "call_read_1",
+                    type: "function",
+                    function: {
+                      name: "skillbridge_read_resource",
+                      arguments: JSON.stringify({ skillName: "Code Review", resourcePath: "references/guide.md" }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+      mode: "tools",
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(receivedBodies).toHaveLength(1);
+      expect(receivedBodies[0].tools?.map((tool) => tool.function.name)).toEqual(
+        expect.arrayContaining(["skillbridge_read_resource", "skillbridge_run_script"]),
+      );
+      expect(body).toMatchObject({ id: "chatcmpl-tool-call" });
+      expect(body.choices[0].message.tool_calls[0]).toMatchObject({ id: "call_read_1" });
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
 });
