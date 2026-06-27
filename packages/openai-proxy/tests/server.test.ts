@@ -111,6 +111,7 @@ description: 对代码改动进行审查、指出问题并给出建议
       path.join(skillDir, "SKILL.md"),
       `---
 name: Code Review
+id: code-review
 description: Review code changes
 metadata:
   keywords: review
@@ -172,6 +173,7 @@ metadata:
       path.join(skillDir, "SKILL.md"),
       `---
 name: Code Review
+id: code-review
 description: Review code changes
 metadata:
   keywords: review
@@ -203,7 +205,7 @@ metadata:
                       function: {
                         name: "skillbridge_read_resource",
                         arguments: JSON.stringify({
-                          skillName: "Code Review",
+                          skillId: "code-review",
                           resourcePath: "references/guide.md",
                         }),
                       },
@@ -266,6 +268,7 @@ metadata:
       path.join(skillDir, "SKILL.md"),
       `---
 name: Code Review
+id: code-review
 description: Review code changes
 metadata:
   keywords: review
@@ -320,6 +323,7 @@ metadata:
       path.join(skillDir, "SKILL.md"),
       `---
 name: Code Review
+id: code-review
 description: Review code changes
 metadata:
   keywords: review
@@ -345,7 +349,7 @@ metadata:
                     type: "function",
                     function: {
                       name: "skillbridge_read_resource",
-                      arguments: JSON.stringify({ skillName: "Code Review", resourcePath: "references/guide.md" }),
+                      arguments: JSON.stringify({ skillId: "code-review", resourcePath: "references/guide.md" }),
                     },
                   },
                 ],

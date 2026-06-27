@@ -45,29 +45,29 @@ Compatibility tools retained for existing clients:
 - `skillbridge_read_resource`
 - `skillbridge_run_script`
 
-Resource and script tools prefer `skillName`:
+Resource and script tools prefer stable `skillId`. `skillName` remains a deprecated compatibility field:
 
 ```json
 {
-  "skillName": "Code Review",
+  "skillId": "code-review",
   "resourcePath": "references/checklist.md"
 }
 ```
 
-`skillPath` is still accepted as deprecated compatibility input and may be removed in `v0.2`.
+`skillName` and `skillPath` are still accepted as deprecated compatibility input and may be removed in `v0.2`.
 
 ## Resources
 
 Skill files are exposed as MCP resources so clients can browse and read them with native resource UX:
 
-- `skill://{skillName}/SKILL.md`
-- `skill://{skillName}/references/{file}`
-- `skill://{skillName}/assets/{file}`
+- `skill://{skillId}/SKILL.md`
+- `skill://{skillId}/references/{file}`
+- `skill://{skillId}/assets/{file}`
 
 Nested reference and asset paths are URL encoded inside `{file}`. For example:
 
 ```text
-skill://Code%20Review/references/checklists%2Fpr-risk.md
+skill://code-review/references/checklists%2Fpr-risk.md
 ```
 
 Resources preserve progressive loading: catalog and selected `SKILL.md` are used for activation, while references and assets are read only when the client requests the resource.

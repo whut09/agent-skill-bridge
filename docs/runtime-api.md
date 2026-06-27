@@ -10,7 +10,7 @@ await runtime.init();
 
 const skills = runtime.listSkills();
 const activation = await runtime.activateSkill("review this PR");
-const resource = await runtime.readResource("Code Review", "references/guide.md");
+const resource = await runtime.readResource("code-review", "references/guide.md");
 
 console.log(skills);
 console.log(activation.systemPatch);
@@ -120,10 +120,14 @@ The context follows four loading levels:
 
 Returns a scanned skill by exact case-insensitive name.
 
-### L2 Resource Loading: `listResources(skillName)` and `readResource(...)`
+### `getSkillById(id)`
+
+Returns a scanned skill by stable id. Prefer this for tool calls and stored references because display names are not guaranteed to be unique.
+
+### L2 Resource Loading: `listResources(skillId)` and `readResource(...)`
 
 ```ts
-const listing = runtime.listResources("Code Review");
+const listing = runtime.listResources("code-review");
 ```
 
 Returns deferred files for the skill:
@@ -132,10 +136,10 @@ Returns deferred files for the skill:
 - `scripts`
 - `assets`
 
-Read a resource by skill name:
+Read a resource by skill id:
 
 ```ts
-await runtime.readResource("Code Review", "references/checklist.md");
+await runtime.readResource("code-review", "references/checklist.md");
 ```
 
 The legacy object form remains supported:
@@ -149,6 +153,8 @@ await runtime.readResource({
 
 Reads only files inside the skill directory.
 
+`readResource(skillName, resourcePath)` still works as a deprecated compatibility fallback, but new integrations should pass `skillId`.
+
 Trace event:
 
 - `policy_audit`
@@ -156,10 +162,10 @@ Trace event:
 
 ### L3 Execution: `runScript(...)`
 
-Run a script by skill name:
+Run a script by skill id:
 
 ```ts
-await runtime.runScript("Code Review", "scripts/check.mjs", {
+await runtime.runScript("code-review", "scripts/check.mjs", {
   enableScripts: true,
 });
 ```

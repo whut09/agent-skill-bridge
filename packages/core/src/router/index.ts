@@ -129,11 +129,7 @@ function inferRequiredTools(skill: SkillManifest): string[] {
 }
 
 function createSkillId(skill: SkillManifest): string {
-  return skill.name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gu, "-")
-    .replace(/^-+|-+$/g, "");
+  return skill.id;
 }
 
 function decorateCandidate(result: SkillSearchResult) {

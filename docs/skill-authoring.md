@@ -14,6 +14,7 @@ my-skill/
 
 ```markdown
 ---
+id: code-review
 name: Code Review
 description: Review code changes for correctness, regressions, and test coverage gaps.
 metadata:
@@ -34,7 +35,7 @@ permissions:
 Use this skill when the user asks for review, regression risk, test coverage, or PR feedback.
 ```
 
-`name` and `description` are required. They are the lightweight metadata used during scan and routing.
+`name` and `description` are required. `id` is strongly recommended as the stable runtime identifier used by tools, MCP resources, and OpenAI proxy calls.
 
 ## Progressive Disclosure
 

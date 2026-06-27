@@ -82,6 +82,8 @@ Tools mode appends two OpenAI tools:
 - `skillbridge_read_resource`
 - `skillbridge_run_script`
 
+Tool arguments use stable `skillId`; deprecated `skillName` is still accepted as a compatibility fallback.
+
 The proxy does not execute returned `tool_calls` in this mode. The caller can handle tool execution itself.
 
 ### `loop`

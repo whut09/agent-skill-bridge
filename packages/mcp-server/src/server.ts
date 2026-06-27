@@ -86,16 +86,18 @@ function registerNativeTools(
       description:
         "Run a script from the selected skill scripts directory. Disabled unless scripts are explicitly enabled.",
       inputSchema: {
-        skillName: z.string(),
+        skillId: z.string(),
+        skillName: z.string().optional().describe("Deprecated. Use skillId instead; scheduled for removal in v0.2."),
         scriptPath: z.string(),
         enableScripts: z.boolean().optional(),
         timeoutMs: z.number().optional(),
         args: z.array(z.string()).optional(),
       },
     },
-    async ({ skillName, scriptPath, enableScripts, timeoutMs, args }) => {
+    async ({ skillId, skillName, scriptPath, enableScripts, timeoutMs, args }) => {
       const result = await runScriptTool(runtime, options, {
-        skillName: skillName as string,
+        skillId: skillId as string,
+        skillName: skillName as string | undefined,
         scriptPath: scriptPath as string,
         enableScripts: enableScripts as boolean | undefined,
         timeoutMs: timeoutMs as number | undefined,
@@ -111,19 +113,19 @@ function registerNativeTools(
 
 function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime): void {
   const completion = {
-    skillName: async (value: string) => {
+    skillId: async (value: string) => {
       const { skills } = await ensureRuntimeInitialized(runtime);
       const normalizedValue = value.toLowerCase();
-      return skills.map((skill) => skill.name).filter((name) => name.toLowerCase().includes(normalizedValue));
+      return skills.map((skill) => skill.id).filter((id) => id.toLowerCase().includes(normalizedValue));
     },
   };
 
   server.registerResource(
     "skillbridge-skill-md",
-    new ResourceTemplate("skill://{skillName}/SKILL.md", {
+    new ResourceTemplate("skill://{skillId}/SKILL.md", {
       list: async () => ({
         resources: (await ensureRuntimeInitialized(runtime)).skills.map((skill) => ({
-          uri: toSkillUri(skill.name, "SKILL.md"),
+          uri: toSkillUri(skill.id, "SKILL.md"),
           name: `${skill.name} SKILL.md`,
           title: `${skill.name} SKILL.md`,
           description: skill.description,
@@ -137,12 +139,12 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
       description: "Selected skill SKILL.md files.",
       mimeType: "text/markdown",
     },
-    async (uri, variables) => readSkillResourceUri(runtime, uri, variables.skillName as string, "SKILL.md"),
+    async (uri, variables) => readSkillResourceUri(runtime, uri, variables.skillId as string, "SKILL.md"),
   );
 
   server.registerResource(
     "skillbridge-reference",
-    new ResourceTemplate("skill://{skillName}/references/{file}", {
+    new ResourceTemplate("skill://{skillId}/references/{file}", {
       list: async () => listSkillResources(runtime, "references"),
       complete: completion,
     }),
@@ -151,12 +153,12 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
       description: "Reference files exposed by skills.",
     },
     async (uri, variables) =>
-      readSkillResourceUri(runtime, uri, variables.skillName as string, `references/${variables.file as string}`),
+      readSkillResourceUri(runtime, uri, variables.skillId as string, `references/${variables.file as string}`),
   );
 
   server.registerResource(
     "skillbridge-asset",
-    new ResourceTemplate("skill://{skillName}/assets/{file}", {
+    new ResourceTemplate("skill://{skillId}/assets/{file}", {
       list: async () => listSkillResources(runtime, "assets"),
       complete: completion,
     }),
@@ -165,7 +167,7 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
       description: "Asset files exposed by skills.",
     },
     async (uri, variables) =>
-      readSkillResourceUri(runtime, uri, variables.skillName as string, `assets/${variables.file as string}`),
+      readSkillResourceUri(runtime, uri, variables.skillId as string, `assets/${variables.file as string}`),
   );
 }
 
@@ -310,11 +312,17 @@ function registerLegacyTools(
   server.tool(
     "skillbridge_read_skill",
     {
+      skillId: z.string().optional(),
       skillName: z.string().optional(),
-      skillPath: z.string().optional().describe("Deprecated. Use skillName instead; scheduled for removal in v0.2."),
+      skillPath: z.string().optional().describe("Deprecated. Use skillId instead; scheduled for removal in v0.2."),
     },
-    async ({ skillName, skillPath }) => {
-      const skill = await resolveSkill(runtime, skillName as string | undefined, skillPath as string | undefined);
+    async ({ skillId, skillName, skillPath }) => {
+      const skill = await resolveSkill(
+        runtime,
+        skillId as string | undefined,
+        skillName as string | undefined,
+        skillPath as string | undefined,
+      );
       const resource = await runtime.readResource({
         skillPath: skill.path,
         resourcePath: "SKILL.md",
@@ -328,11 +336,17 @@ function registerLegacyTools(
   server.tool(
     "skillbridge_list_resources",
     {
+      skillId: z.string().optional(),
       skillName: z.string().optional(),
-      skillPath: z.string().optional().describe("Deprecated. Use skillName instead; scheduled for removal in v0.2."),
+      skillPath: z.string().optional().describe("Deprecated. Use skillId instead; scheduled for removal in v0.2."),
     },
-    async ({ skillName, skillPath }) => {
-      const skill = await resolveSkill(runtime, skillName as string | undefined, skillPath as string | undefined);
+    async ({ skillId, skillName, skillPath }) => {
+      const skill = await resolveSkill(
+        runtime,
+        skillId as string | undefined,
+        skillName as string | undefined,
+        skillPath as string | undefined,
+      );
       const resources = [...skill.references, ...skill.scripts, ...skill.assets];
 
       return {
@@ -344,12 +358,18 @@ function registerLegacyTools(
   server.tool(
     "skillbridge_read_resource",
     {
+      skillId: z.string().optional(),
       skillName: z.string().optional(),
-      skillPath: z.string().optional().describe("Deprecated. Use skillName instead; scheduled for removal in v0.2."),
+      skillPath: z.string().optional().describe("Deprecated. Use skillId instead; scheduled for removal in v0.2."),
       resourcePath: z.string(),
     },
-    async ({ skillName, skillPath, resourcePath }) => {
-      const skill = await resolveSkill(runtime, skillName as string | undefined, skillPath as string | undefined);
+    async ({ skillId, skillName, skillPath, resourcePath }) => {
+      const skill = await resolveSkill(
+        runtime,
+        skillId as string | undefined,
+        skillName as string | undefined,
+        skillPath as string | undefined,
+      );
       const resource = await runtime.readResource({
         skillPath: skill.path,
         resourcePath: resourcePath as string,
@@ -363,15 +383,17 @@ function registerLegacyTools(
   server.tool(
     "skillbridge_run_script",
     {
+      skillId: z.string().optional(),
       skillName: z.string().optional(),
-      skillPath: z.string().optional().describe("Deprecated. Use skillName instead; scheduled for removal in v0.2."),
+      skillPath: z.string().optional().describe("Deprecated. Use skillId instead; scheduled for removal in v0.2."),
       scriptPath: z.string(),
       enableScripts: z.boolean().optional(),
       timeoutMs: z.number().optional(),
       args: z.array(z.string()).optional(),
     },
-    async ({ skillName, skillPath, scriptPath, enableScripts, timeoutMs, args }) => {
+    async ({ skillId, skillName, skillPath, scriptPath, enableScripts, timeoutMs, args }) => {
       const result = await runScriptTool(runtime, options, {
+        skillId: skillId as string | undefined,
         skillName: skillName as string | undefined,
         skillPath: skillPath as string | undefined,
         scriptPath: scriptPath as string,
@@ -396,7 +418,7 @@ async function listSkillResources(runtime: SkillBridgeRuntime, kind: "references
   const resources = skills.flatMap((skill) => {
     const paths = kind === "references" ? skill.references : skill.assets;
     return paths.map((resourcePath) => ({
-      uri: toSkillUri(skill.name, resourcePath),
+      uri: toSkillUri(skill.id, resourcePath),
       name: `${skill.name} ${resourcePath}`,
       title: `${skill.name}: ${resourcePath}`,
       description: kind === "references" ? skill.description : `Asset from ${skill.name}`,
@@ -406,8 +428,8 @@ async function listSkillResources(runtime: SkillBridgeRuntime, kind: "references
   return { resources };
 }
 
-async function readSkillResourceUri(runtime: SkillBridgeRuntime, uri: URL, skillName: string, resourcePath: string) {
-  const skill = await resolveSkill(runtime, decodeURIComponent(skillName));
+async function readSkillResourceUri(runtime: SkillBridgeRuntime, uri: URL, skillId: string, resourcePath: string) {
+  const skill = await resolveSkill(runtime, decodeURIComponent(skillId));
   const resource = await runtime.readResource({
     skillPath: skill.path,
     resourcePath: decodeResourcePath(resourcePath),
@@ -422,6 +444,7 @@ async function runScriptTool(
   runtime: SkillBridgeRuntime,
   options: SkillBridgeMcpServerOptions,
   input: {
+    skillId?: string;
     skillName?: string;
     skillPath?: string;
     scriptPath: string;
@@ -434,7 +457,7 @@ async function runScriptTool(
     throw new Error("run_script is disabled by default. Pass enableScripts=true to allow execution.");
   }
 
-  const skill = await resolveSkill(runtime, input.skillName, input.skillPath);
+  const skill = await resolveSkill(runtime, input.skillId, input.skillName, input.skillPath);
   return runtime.runScript({
     skill,
     scriptPath: input.scriptPath,
@@ -444,13 +467,27 @@ async function runScriptTool(
   });
 }
 
-async function resolveSkill(runtime: SkillBridgeRuntime, skillName?: string, deprecatedSkillPath?: string) {
+async function resolveSkill(
+  runtime: SkillBridgeRuntime,
+  skillId?: string,
+  deprecatedSkillName?: string,
+  deprecatedSkillPath?: string,
+) {
   const { skills } = await ensureRuntimeInitialized(runtime);
 
-  if (skillName) {
-    const skill = runtime.getSkillByName(skillName);
+  if (skillId) {
+    const skill = runtime.getSkillById(skillId);
     if (!skill) {
-      throw new Error(`Skill not found by name: ${skillName}`);
+      throw new Error(`Skill not found by id: ${skillId}`);
+    }
+
+    return skill;
+  }
+
+  if (deprecatedSkillName) {
+    const skill = runtime.getSkillByName(deprecatedSkillName);
+    if (!skill) {
+      throw new Error(`Skill not found by deprecated skillName: ${deprecatedSkillName}`);
     }
 
     return skill;
@@ -466,17 +503,17 @@ async function resolveSkill(runtime: SkillBridgeRuntime, skillName?: string, dep
     return skill;
   }
 
-  throw new Error("skillName is required. Deprecated skillPath is still accepted until v0.2.");
+  throw new Error("skillId is required. Deprecated skillName and skillPath are still accepted until v0.2.");
 }
 
-function toSkillUri(skillName: string, resourcePath: string): string {
+function toSkillUri(skillId: string, resourcePath: string): string {
   const normalizedResourcePath = resourcePath.split(path.sep).join("/");
   if (normalizedResourcePath === "SKILL.md") {
-    return `skill://${encodeURIComponent(skillName)}/SKILL.md`;
+    return `skill://${encodeURIComponent(skillId)}/SKILL.md`;
   }
 
   const [firstSegment, ...rest] = normalizedResourcePath.split("/");
-  return `skill://${encodeURIComponent(skillName)}/${firstSegment}/${encodeURIComponent(rest.join("/"))}`;
+  return `skill://${encodeURIComponent(skillId)}/${firstSegment}/${encodeURIComponent(rest.join("/"))}`;
 }
 
 function decodeResourcePath(resourcePath: string): string {

@@ -62,7 +62,7 @@ node packages/openai-proxy/dist/server.js
 - Enforce policy checks for permissions, trust levels, allowlists, and audit traces.
 - Read skill resources safely from inside the skill directory.
 - Execute local scripts from `scripts/` only, disabled by default.
-- Expose tools through MCP with `skillName` based access.
+- Expose tools through MCP with `skillId` based access.
 - Proxy OpenAI-compatible chat completions with Skill context injection.
 - Intercept OpenAI tool calls for `skillbridge_read_resource` and `skillbridge_run_script`.
 - Maintain runtime trace events and expose trace IDs from the proxy.
@@ -94,6 +94,7 @@ A skill is a directory containing `SKILL.md` plus optional `references/`, `scrip
 
 ```markdown
 ---
+id: code-review
 name: Code Review
 description: Review code changes for correctness and risk
 version: 0.1.0
@@ -163,8 +164,8 @@ Useful runtime layers:
 
 - L0 Discovery: `listSkills()` returns only `name`, `description`, `keywords`, and capabilities.
 - L1 Activation: `activateSkill(query)` returns `ActivationDecision`, `systemPatch`, candidates, confidence, allowed tools, and next actions.
-- L2 Resource Loading: `listResources(skillName)` and `readResource(skillName, resourcePath)` defer reference files until needed.
-- L3 Execution: `runScript(skillName, scriptPath, options)` runs approved scripts only when explicitly enabled.
+- L2 Resource Loading: `listResources(skillId)` and `readResource(skillId, resourcePath)` defer reference files until needed.
+- L3 Execution: `runScript(skillId, scriptPath, options)` runs approved scripts only when explicitly enabled.
 - Compatibility: `prepare()` still returns the legacy SDK shape, and object-form `readResource()` / `runScript()` remain supported.
 - Trace: `getTrace()` and `clearTrace()` inspect or reset runtime trace events.
 
@@ -215,9 +216,9 @@ Tools:
 
 Resources:
 
-- `skill://{skillName}/SKILL.md`
-- `skill://{skillName}/references/{file}`
-- `skill://{skillName}/assets/{file}`
+- `skill://{skillId}/SKILL.md`
+- `skill://{skillId}/references/{file}`
+- `skill://{skillId}/assets/{file}`
 
 Prompts:
 
@@ -227,16 +228,16 @@ Prompts:
 
 Legacy underscore tool names such as `skillbridge_search_skills` and `skillbridge_read_resource` remain available for compatibility.
 
-Resource and script tools use `skillName`:
+Resource and script tools use stable `skillId`. `skillName` is still accepted as a deprecated compatibility field:
 
 ```json
 {
-  "skillName": "Code Review",
+  "skillId": "code-review",
   "resourcePath": "references/guide.md"
 }
 ```
 
-`skillPath` is still accepted as a deprecated compatibility parameter and may be removed in `v0.2`.
+`skillName` and `skillPath` are still accepted as deprecated compatibility parameters and may be removed in `v0.2`.
 
 By default, MCP responses hide absolute paths. Pass `--debug` to include raw paths.
 

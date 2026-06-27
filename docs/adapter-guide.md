@@ -53,23 +53,19 @@ Use `decision.candidates` for UI/debugging and `decision.confidence` for host-sp
 Map native agent tools to runtime calls:
 
 ```ts
-async function readResource(skillName: string, resourcePath: string) {
-  const skill = runtime.getSkillByName(skillName);
-  if (!skill) throw new Error(`Skill not found: ${skillName}`);
-  return runtime.readResource({ skillPath: skill.path, resourcePath });
+async function readResource(skillId: string, resourcePath: string) {
+  return runtime.readResource(skillId, resourcePath);
 }
 
-async function runScript(skillName: string, scriptPath: string, args: string[]) {
-  const skill = runtime.getSkillByName(skillName);
-  if (!skill) throw new Error(`Skill not found: ${skillName}`);
-  return runtime.runScript({ skill, scriptPath, args, enableScripts: true });
+async function runScript(skillId: string, scriptPath: string, args: string[]) {
+  return runtime.runScript(skillId, scriptPath, { args, enableScripts: true });
 }
 ```
 
 ## Adapter Checklist
 
 - Keep script execution off unless the host explicitly enables it.
-- Prefer `skillName` in public tool APIs.
+- Prefer stable `skillId` in public tool APIs. Keep `skillName` only as a deprecated compatibility field.
 - Hide absolute paths from model-visible outputs.
 - Preserve trace events for debugging.
 - Keep model-facing resource outputs small and relevant.

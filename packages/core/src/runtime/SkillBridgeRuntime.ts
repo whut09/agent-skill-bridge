@@ -54,8 +54,8 @@ function buildToolInstructions(selectedSkill?: SkillManifest): string {
   const lines = [
     "Tool usage:",
     "- SkillBridge uses progressive loading: reference files, scripts, and assets are not loaded into the prompt by default.",
-    "- readResource({ skillName, resourcePath }) reads only files inside an activated skill directory when the task needs them.",
-    "- runScript({ skill, scriptPath, enableScripts: true }) executes scripts inside scripts/ only.",
+    "- readResource(skillId, resourcePath) reads only files inside an activated skill directory when the task needs them.",
+    "- runScript(skillId, scriptPath, { enableScripts: true }) executes scripts inside scripts/ only.",
     "- Scripts are disabled by default and shell execution is never enabled.",
   ];
 
@@ -67,11 +67,7 @@ function buildToolInstructions(selectedSkill?: SkillManifest): string {
 }
 
 function createSkillId(skill: SkillManifest): string {
-  return skill.name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gu, "-")
-    .replace(/^-+|-+$/g, "");
+  return skill.id;
 }
 
 function inferNextActions(selectedSkill?: SkillManifest): Array<"readResource" | "runScript" | "askUser" | "none"> {
@@ -141,6 +137,11 @@ export class SkillBridgeRuntime {
     return this.skills.find((skill) => skill.name.trim().toLowerCase() === normalizedName);
   }
 
+  getSkillById(id: string): SkillManifest | undefined {
+    const normalizedId = id.trim().toLowerCase();
+    return this.skills.find((skill) => skill.id.trim().toLowerCase() === normalizedId);
+  }
+
   listSkills(): SkillDiscoveryResult[] {
     return this.skills.map((skill) => ({
       id: createSkillId(skill),
@@ -161,9 +162,10 @@ export class SkillBridgeRuntime {
     return activationDecision;
   }
 
-  listResources(skillName: string): SkillResourceListing {
-    const skill = this.requireSkillByName(skillName);
+  listResources(skillId: string): SkillResourceListing {
+    const skill = this.requireSkillByIdOrName(skillId);
     return {
+      skillId: skill.id,
       skillName: skill.name,
       references: [...skill.references],
       scripts: [...skill.scripts],
@@ -234,7 +236,7 @@ export class SkillBridgeRuntime {
       query,
       selectedSkill: selectedSkill
         ? {
-            id: createSkillId(selectedSkill),
+            id: selectedSkill.id,
             name: selectedSkill.name,
           }
         : undefined,
@@ -263,7 +265,7 @@ export class SkillBridgeRuntime {
         throw new Error("resourcePath is required when reading by skill name.");
       }
       input = {
-        skillPath: this.requireSkillByName(inputOrSkillName).path,
+        skillPath: this.requireSkillByIdOrName(inputOrSkillName).path,
         resourcePath,
       };
     } else {
@@ -317,7 +319,7 @@ export class SkillBridgeRuntime {
       }
       input = {
         ...options,
-        skill: this.requireSkillByName(inputOrSkillName),
+        skill: this.requireSkillByIdOrName(inputOrSkillName),
         scriptPath,
       };
     } else {
@@ -428,10 +430,10 @@ export class SkillBridgeRuntime {
     return this.skills.find((skill) => path.resolve(skill.path) === normalizedSkillPath);
   }
 
-  private requireSkillByName(name: string): SkillManifest {
-    const skill = this.getSkillByName(name);
+  private requireSkillByIdOrName(idOrName: string): SkillManifest {
+    const skill = this.getSkillById(idOrName) ?? this.getSkillByName(idOrName);
     if (!skill) {
-      throw new Error(`Skill not found by name: ${name}`);
+      throw new Error(`Skill not found by id or name: ${idOrName}`);
     }
 
     return skill;

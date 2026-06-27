@@ -1,11 +1,16 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
+import { createHash } from "node:crypto";
 import type { SkillManifest } from "../types.js";
 
 type RawSkillFrontmatter = {
+  id?: unknown;
   name?: unknown;
   description?: unknown;
+  packageName?: unknown;
+  "package-name"?: unknown;
+  package?: unknown;
   version?: unknown;
   license?: unknown;
   author?: unknown;
@@ -218,6 +223,33 @@ function readMetadata(frontmatter: RawSkillFrontmatter): SkillManifest["metadata
   return Object.values(parsedMetadata).some((entry) => entry !== undefined) ? parsedMetadata : undefined;
 }
 
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function createPathHashId(skillDirectory: string): string {
+  const normalizedPath = path.resolve(skillDirectory).split(path.sep).join("/");
+  return `skill-${createHash("sha256").update(normalizedPath).digest("hex").slice(0, 12)}`;
+}
+
+function createSkillId(frontmatter: RawSkillFrontmatter, name: string, skillDirectory: string): string {
+  const explicitId = readOptionalString(frontmatter.id);
+  if (explicitId) {
+    return explicitId;
+  }
+
+  const packageName = readOptionalString(readFrontmatterValue(frontmatter, ["packageName", "package-name", "package"]));
+  if (packageName) {
+    return `${slugify(packageName)}/${slugify(name)}`;
+  }
+
+  return createPathHashId(skillDirectory);
+}
+
 export async function parseSkillDir(skillDirectory: string): Promise<SkillManifest> {
   const skillFilePath = path.join(skillDirectory, "SKILL.md");
   const skillContent = await fs.readFile(skillFilePath, "utf8");
@@ -226,10 +258,13 @@ export async function parseSkillDir(skillDirectory: string): Promise<SkillManife
   const name = readRequiredString(frontmatter, "name", skillFilePath);
   const description = readRequiredString(frontmatter, "description", skillFilePath);
   const metadata = readMetadata(frontmatter);
+  const packageName = readOptionalString(readFrontmatterValue(frontmatter, ["packageName", "package-name", "package"]));
 
   return {
+    id: createSkillId(frontmatter, name, skillDirectory),
     name,
     description,
+    packageName,
     version: readOptionalString(frontmatter.version),
     license: readOptionalString(frontmatter.license),
     author: readOptionalString(frontmatter.author),

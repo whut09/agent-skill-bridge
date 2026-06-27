@@ -5,7 +5,7 @@ MCP stdio server for `agent-skill-bridge`.
 It exposes native MCP:
 
 - Tools: `skillbridge.search`, `skillbridge.activate`, `skillbridge.run_script`
-- Resources: `skill://{skillName}/SKILL.md`, `skill://{skillName}/references/{file}`, `skill://{skillName}/assets/{file}`
+- Resources: `skill://{skillId}/SKILL.md`, `skill://{skillId}/references/{file}`, `skill://{skillId}/assets/{file}`
 - Prompts: `skillbridge-use-skill`, `skillbridge-debug-skill`, `skillbridge-create-skill`
 
 Legacy underscore tool names remain available for compatibility.

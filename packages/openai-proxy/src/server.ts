@@ -66,10 +66,11 @@ const skillBridgeTools: OpenAITool[] = [
       parameters: {
         type: "object",
         properties: {
-          skillName: { type: "string", description: "The skill name." },
+          skillId: { type: "string", description: "The stable skill id." },
+          skillName: { type: "string", description: "Deprecated. Use skillId instead." },
           resourcePath: { type: "string", description: "Path inside the skill package." },
         },
-        required: ["skillName", "resourcePath"],
+        required: ["skillId", "resourcePath"],
       },
     },
   },
@@ -81,12 +82,13 @@ const skillBridgeTools: OpenAITool[] = [
       parameters: {
         type: "object",
         properties: {
-          skillName: { type: "string", description: "The skill name." },
+          skillId: { type: "string", description: "The stable skill id." },
+          skillName: { type: "string", description: "Deprecated. Use skillId instead." },
           scriptPath: { type: "string", description: "Path under scripts/ inside the skill package." },
           args: { type: "array", items: { type: "string" } },
           timeoutMs: { type: "number" },
         },
-        required: ["skillName", "scriptPath"],
+        required: ["skillId", "scriptPath"],
       },
     },
   },
@@ -212,10 +214,21 @@ function getStringArgument(argumentsObject: Record<string, unknown>, key: string
   return value;
 }
 
-function resolveSkill(runtime: SkillBridgeRuntime, skillName: string): SkillManifest {
-  const skill = runtime.getSkillByName(skillName);
+function getOptionalStringArgument(argumentsObject: Record<string, unknown>, key: string): string | undefined {
+  const value = argumentsObject[key];
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function resolveSkill(runtime: SkillBridgeRuntime, toolArguments: Record<string, unknown>): SkillManifest {
+  const skillId = getOptionalStringArgument(toolArguments, "skillId");
+  const deprecatedSkillName = getOptionalStringArgument(toolArguments, "skillName");
+  const skill = skillId
+    ? runtime.getSkillById(skillId)
+    : deprecatedSkillName
+      ? runtime.getSkillByName(deprecatedSkillName)
+      : undefined;
   if (!skill) {
-    throw new Error(`Skill not found by name: ${skillName}`);
+    throw new Error(`Skill not found by id: ${skillId ?? deprecatedSkillName ?? "(missing)"}`);
   }
 
   return skill;
@@ -243,22 +256,17 @@ async function executeSkillBridgeTool(
 
   let result: unknown;
   if (toolName === "skillbridge_read_resource") {
-    const skill = resolveSkill(runtime, getStringArgument(toolArguments, "skillName"));
+    const skill = resolveSkill(runtime, toolArguments);
     result = normalizeToolResult(
-      await runtime.readResource({
-        skillPath: skill.path,
-        resourcePath: getStringArgument(toolArguments, "resourcePath"),
-      }),
+      await runtime.readResource(skill.id, getStringArgument(toolArguments, "resourcePath")),
     );
   } else if (toolName === "skillbridge_run_script") {
-    const skill = resolveSkill(runtime, getStringArgument(toolArguments, "skillName"));
+    const skill = resolveSkill(runtime, toolArguments);
     const args = Array.isArray(toolArguments.args)
       ? toolArguments.args.filter((entry): entry is string => typeof entry === "string")
       : [];
     const timeoutMs = typeof toolArguments.timeoutMs === "number" ? toolArguments.timeoutMs : undefined;
-    result = await runtime.runScript({
-      skill,
-      scriptPath: getStringArgument(toolArguments, "scriptPath"),
+    result = await runtime.runScript(skill.id, getStringArgument(toolArguments, "scriptPath"), {
       enableScripts,
       timeoutMs,
       args,

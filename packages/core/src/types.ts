@@ -4,8 +4,10 @@ export type SkillResource = {
 };
 
 export type SkillManifest = {
+  id: string;
   name: string;
   description: string;
+  packageName?: string;
   version?: string;
   license?: string;
   author?: string;
@@ -86,6 +88,7 @@ export type ActivationDecision = {
 };
 
 export type SkillResourceListing = {
+  skillId: string;
   skillName: string;
   references: string[];
   scripts: string[];

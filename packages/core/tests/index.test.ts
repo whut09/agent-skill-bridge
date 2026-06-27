@@ -74,6 +74,41 @@ describe("core", () => {
     await expect(scanSkillDirs([tempRoot])).rejects.toThrow(/name/);
   });
 
+  it("creates stable skill ids from id, package name, or path hash", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-ids-"));
+    const explicitDir = path.join(tempRoot, "explicit");
+    const packagedDir = path.join(tempRoot, "packaged");
+    const hashedDir = path.join(tempRoot, "hashed");
+
+    await mkdir(explicitDir, { recursive: true });
+    await mkdir(packagedDir, { recursive: true });
+    await mkdir(hashedDir, { recursive: true });
+    await writeFile(
+      path.join(explicitDir, "SKILL.md"),
+      `---\nid: custom-review\nname: Custom Review\ndescription: Explicit id\n---\n# Skill`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(packagedDir, "SKILL.md"),
+      `---\npackage-name: acme.skills\nname: Code Review\ndescription: Package id\n---\n# Skill`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(hashedDir, "SKILL.md"),
+      `---\nname: Hashed Skill\ndescription: Hashed id\n---\n# Skill`,
+      "utf8",
+    );
+
+    const manifests = await scanSkillDirs([tempRoot]);
+
+    expect(manifests.find((skill) => skill.name === "Custom Review")).toMatchObject({ id: "custom-review" });
+    expect(manifests.find((skill) => skill.name === "Code Review")).toMatchObject({
+      id: "acme-skills/code-review",
+      packageName: "acme.skills",
+    });
+    expect(manifests.find((skill) => skill.name === "Hashed Skill")?.id).toMatch(/^skill-[a-f0-9]{12}$/);
+  });
+
   it("parses extended frontmatter and searches real SKILL.md metadata keywords", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-keywords-"));
     const skillDir = path.join(tempRoot, "skill");
@@ -506,6 +541,7 @@ description: 对代码改动进行审查、指出问题并给出建议
     await writeFile(
       path.join(skillDir, "SKILL.md"),
       `---
+id: code-review
 name: Code Review
 description: Review PR risk
 allowed-tools:
@@ -530,9 +566,9 @@ Check correctness, regression risk, and missing tests.`,
 
     const discovery = runtime.listSkills();
     const activation = await runtime.activateSkill("PR risk", { budget: 700 });
-    const resources = runtime.listResources("Code Review");
-    const resource = await runtime.readResource("Code Review", "references/guide.md");
-    const script = await runtime.runScript("Code Review", "scripts/echo.mjs", {
+    const resources = runtime.listResources("code-review");
+    const resource = await runtime.readResource("code-review", "references/guide.md");
+    const script = await runtime.runScript("code-review", "scripts/echo.mjs", {
       enableScripts: true,
       timeoutMs: 5000,
     });
@@ -571,6 +607,7 @@ Check correctness, regression risk, and missing tests.`,
     });
     expect(resources).toEqual({
       skillName: "Code Review",
+      skillId: "code-review",
       references: ["references/guide.md"],
       scripts: ["scripts/echo.mjs"],
       assets: [],

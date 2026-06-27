@@ -34,9 +34,9 @@ describe("mcp server", () => {
       ),
     ).toEqual(
       expect.arrayContaining([
-        "skill://{skillName}/SKILL.md",
-        "skill://{skillName}/references/{file}",
-        "skill://{skillName}/assets/{file}",
+        "skill://{skillId}/SKILL.md",
+        "skill://{skillId}/references/{file}",
+        "skill://{skillId}/assets/{file}",
       ]),
     );
     expect(Object.keys(internals._registeredPrompts)).toEqual(

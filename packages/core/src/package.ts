@@ -1,5 +1,13 @@
 import type { SkillManifest, SkillResource } from "./types.js";
 
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function createSkillPackage(input: {
   name: string;
   description: string;
@@ -9,6 +17,7 @@ export function createSkillPackage(input: {
   const resources = input.resources ?? [];
 
   return {
+    id: slugify(input.name),
     name: input.name,
     description: input.description,
     path: input.path,
