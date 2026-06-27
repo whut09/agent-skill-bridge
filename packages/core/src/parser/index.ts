@@ -88,7 +88,11 @@ export async function readSkillBody(skillPath: string): Promise<string> {
   return matter(skillContent).content;
 }
 
-function readRequiredString(frontmatter: RawSkillFrontmatter, fieldName: "name" | "description", skillFilePath: string): string {
+function readRequiredString(
+  frontmatter: RawSkillFrontmatter,
+  fieldName: "name" | "description",
+  skillFilePath: string,
+): string {
   const value = frontmatter[fieldName];
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`Missing required frontmatter field "${fieldName}" in ${skillFilePath}`);

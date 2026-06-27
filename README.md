@@ -16,6 +16,42 @@ The project can be used in three ways:
 
 It does not define a new skill standard or marketplace. It bridges existing `SKILL.md` packages into real agent execution loops.
 
+## Minimal Examples
+
+SDK:
+
+```ts
+import { SkillBridgeRuntime } from "@skillbridge/core";
+
+const runtime = new SkillBridgeRuntime(["./examples/skills"]);
+await runtime.init();
+
+const prepared = await runtime.prepare({
+  messages: [{ role: "user", content: "PR risk review" }],
+  userMessage: "PR risk review",
+});
+
+console.log(prepared.systemPatch);
+```
+
+MCP Server:
+
+```bash
+pnpm build
+node packages/mcp-server/dist/server.js --skill-dir ./examples/skills
+```
+
+OpenAI Proxy:
+
+```bash
+pnpm build
+SKILLBRIDGE_TARGET_BASE_URL=https://api.openai.com \
+SKILLBRIDGE_TARGET_API_KEY=$OPENAI_API_KEY \
+SKILLBRIDGE_SKILL_DIR=./examples/skills \
+SKILLBRIDGE_PROXY_MODE=loop \
+node packages/openai-proxy/dist/server.js
+```
+
 ## Features
 
 - Parse `SKILL.md` frontmatter and markdown body.

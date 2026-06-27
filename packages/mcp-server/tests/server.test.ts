@@ -28,7 +28,11 @@ describe("mcp server", () => {
         "skillbridge_run_script",
       ]),
     );
-    expect(Object.values(internals._registeredResourceTemplates).map((template) => template.resourceTemplate.uriTemplate.toString())).toEqual(
+    expect(
+      Object.values(internals._registeredResourceTemplates).map((template) =>
+        template.resourceTemplate.uriTemplate.toString(),
+      ),
+    ).toEqual(
       expect.arrayContaining([
         "skill://{skillName}/SKILL.md",
         "skill://{skillName}/references/{file}",
@@ -49,7 +53,9 @@ describe("mcp server", () => {
       >;
     };
 
-    const result = await internals._registeredResourceTemplates["skillbridge-skill-md"].resourceTemplate.listCallback?.({});
+    const result = await internals._registeredResourceTemplates["skillbridge-skill-md"].resourceTemplate.listCallback?.(
+      {},
+    );
 
     expect(result?.resources.map((resource) => resource.uri)).toEqual(
       expect.arrayContaining([expect.stringMatching(/^skill:\/\/.+\/SKILL\.md$/)]),

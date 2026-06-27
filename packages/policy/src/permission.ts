@@ -2,7 +2,10 @@ import path from "node:path";
 import type { PermissionSet, PolicyDecision } from "./types.js";
 
 function normalizePath(value: string): string {
-  return value.split("\\").join("/").replace(/^\.\/+/, "");
+  return value
+    .split("\\")
+    .join("/")
+    .replace(/^\.\/+/, "");
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -29,10 +32,7 @@ export function isPathWithin(rootPath: string, candidatePath: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-export function checkReadPermission(
-  permissions: PermissionSet | undefined,
-  resourcePath: string,
-): PolicyDecision {
+export function checkReadPermission(permissions: PermissionSet | undefined, resourcePath: string): PolicyDecision {
   if (!permissions?.read || permissions.read.length === 0) {
     return { allowed: true, code: "read.default_allow", reason: "No read permission allowlist declared." };
   }
@@ -48,10 +48,7 @@ export function checkReadPermission(
   };
 }
 
-export function checkWritePermission(
-  permissions: PermissionSet | undefined,
-  resourcePath: string,
-): PolicyDecision {
+export function checkWritePermission(permissions: PermissionSet | undefined, resourcePath: string): PolicyDecision {
   if (!permissions?.write || permissions.write.length === 0) {
     return { allowed: false, code: "write.default_deny", reason: "Write permission is denied unless declared." };
   }

@@ -217,7 +217,9 @@ metadata:
         return;
       }
 
-      response.end(JSON.stringify({ id: "chatcmpl-final", choices: [{ message: { role: "assistant", content: "ok" } }] }));
+      response.end(
+        JSON.stringify({ id: "chatcmpl-final", choices: [{ message: { role: "assistant", content: "ok" } }] }),
+      );
     });
     const targetPort = await listen(targetServer);
     const proxyServer = createOpenAIProxyServer({

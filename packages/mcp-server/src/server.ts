@@ -83,7 +83,8 @@ function registerNativeTools(
     "skillbridge.run_script",
     {
       title: "Run Skill Script",
-      description: "Run a script from the selected skill scripts directory. Disabled unless scripts are explicitly enabled.",
+      description:
+        "Run a script from the selected skill scripts directory. Disabled unless scripts are explicitly enabled.",
       inputSchema: {
         skillName: z.string(),
         scriptPath: z.string(),
@@ -275,44 +276,36 @@ function registerLegacyTools(
     };
   });
 
-  server.tool(
-    "skillbridge_search_skills",
-    { query: z.string() },
-    async ({ query }) => {
-      const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
-      return {
-        content: [
-          {
-            type: "text",
-            text: stringifyResult(prepared.activeSkills, options.debug),
-          },
-        ],
-      };
-    },
-  );
+  server.tool("skillbridge_search_skills", { query: z.string() }, async ({ query }) => {
+    const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
+    return {
+      content: [
+        {
+          type: "text",
+          text: stringifyResult(prepared.activeSkills, options.debug),
+        },
+      ],
+    };
+  });
 
-  server.tool(
-    "skillbridge_activate_skill",
-    { query: z.string() },
-    async ({ query }) => {
-      const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
-      return {
-        content: [
-          {
-            type: "text",
-            text: stringifyResult(
-              {
-                activeSkills: prepared.activeSkills,
-                systemPatch: prepared.systemPatch,
-                toolInstructions: prepared.toolInstructions,
-              },
-              options.debug,
-            ),
-          },
-        ],
-      };
-    },
-  );
+  server.tool("skillbridge_activate_skill", { query: z.string() }, async ({ query }) => {
+    const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
+    return {
+      content: [
+        {
+          type: "text",
+          text: stringifyResult(
+            {
+              activeSkills: prepared.activeSkills,
+              systemPatch: prepared.systemPatch,
+              toolInstructions: prepared.toolInstructions,
+            },
+            options.debug,
+          ),
+        },
+      ],
+    };
+  });
 
   server.tool(
     "skillbridge_read_skill",
@@ -394,7 +387,6 @@ function registerLegacyTools(
   );
 }
 
-
 async function ensureRuntimeInitialized(runtime: SkillBridgeRuntime) {
   return runtime.init();
 }
@@ -414,12 +406,7 @@ async function listSkillResources(runtime: SkillBridgeRuntime, kind: "references
   return { resources };
 }
 
-async function readSkillResourceUri(
-  runtime: SkillBridgeRuntime,
-  uri: URL,
-  skillName: string,
-  resourcePath: string,
-) {
+async function readSkillResourceUri(runtime: SkillBridgeRuntime, uri: URL, skillName: string, resourcePath: string) {
   const skill = await resolveSkill(runtime, decodeURIComponent(skillName));
   const resource = await runtime.readResource({
     skillPath: skill.path,

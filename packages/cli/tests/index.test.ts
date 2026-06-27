@@ -64,7 +64,10 @@ describe("cli package", () => {
   });
 
   it("prints doctor information", async () => {
-    const output = await runCli(["doctor"]);
+    const prettyOutput = await runCli(["doctor"]);
+    expect(prettyOutput).toContain("agent-skill-bridge: ok");
+
+    const output = await runCli(["doctor", "--json"]);
     const body = parseJsonOutput(output) as { ok: boolean; commands: string[] };
 
     expect(body.ok).toBe(true);
@@ -73,12 +76,18 @@ describe("cli package", () => {
 
   it("scans and validates real skills", async () => {
     const { skillRoot } = await createFixtureSkillRoot();
-    const scanOutput = parseJsonOutput(await runCli(["scan", skillRoot])) as {
+    const prettyScanOutput = await runCli(["scan", skillRoot]);
+    const scanOutput = parseJsonOutput(await runCli(["scan", skillRoot, "--json"])) as {
       count: number;
       skills: Array<{ name: string; references: string[]; scripts: string[] }>;
     };
-    const validateOutput = parseJsonOutput(await runCli(["validate", skillRoot])) as { ok: boolean; count: number };
+    const validateOutput = parseJsonOutput(await runCli(["validate", skillRoot, "--json"])) as {
+      ok: boolean;
+      count: number;
+    };
 
+    expect(prettyScanOutput).toContain("Skills: 1");
+    expect(prettyScanOutput).toContain("Code Review");
     expect(scanOutput.count).toBe(1);
     expect(scanOutput.skills[0]).toMatchObject({
       name: "Code Review",
@@ -90,14 +99,17 @@ describe("cli package", () => {
 
   it("searches and activates skills", async () => {
     const { skillRoot } = await createFixtureSkillRoot();
-    const searchOutput = parseJsonOutput(await runCli(["search", skillRoot, "PR risk"])) as {
+    const prettySearchOutput = await runCli(["search", skillRoot, "PR risk"]);
+    const searchOutput = parseJsonOutput(await runCli(["search", skillRoot, "PR risk", "--json"])) as {
       results: Array<{ skill: { name: string }; score: number }>;
     };
-    const activateOutput = parseJsonOutput(await runCli(["activate", skillRoot, "PR risk"])) as {
+    const activateOutput = parseJsonOutput(await runCli(["activate", skillRoot, "PR risk", "--json"])) as {
       activeSkills: Array<{ skill: { name: string } }>;
       systemPatch: string;
     };
 
+    expect(prettySearchOutput).toContain("Matches: 1");
+    expect(prettySearchOutput).toContain("Code Review");
     expect(searchOutput.results[0].skill.name).toBe("Code Review");
     expect(searchOutput.results[0].score).toBeGreaterThan(0);
     expect(activateOutput.activeSkills[0].skill.name).toBe("Code Review");
@@ -106,17 +118,19 @@ describe("cli package", () => {
 
   it("reads resources and runs scripts when enabled", async () => {
     const { skillDir } = await createFixtureSkillRoot();
-    const readOutput = parseJsonOutput(await runCli(["read", skillDir, "references/checklist.md"])) as {
+    const prettyReadOutput = await runCli(["read", skillDir, "references/checklist.md"]);
+    const readOutput = parseJsonOutput(await runCli(["read", skillDir, "references/checklist.md", "--json"])) as {
       type: string;
       content: string;
     };
     const runOutput = parseJsonOutput(
-      await runCli(["run", skillDir, "scripts/check.mjs", "--enable-scripts"]),
+      await runCli(["run", skillDir, "scripts/check.mjs", "--enable-scripts", "--json"]),
     ) as {
       stdout: string;
       exitCode: number;
     };
 
+    expect(prettyReadOutput).toContain("review checklist");
     expect(readOutput).toMatchObject({ type: "text", content: "review checklist" });
     expect(runOutput.stdout).toContain("script ok");
     expect(runOutput.exitCode).toBe(0);

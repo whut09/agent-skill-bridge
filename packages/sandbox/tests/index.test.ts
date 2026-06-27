@@ -36,11 +36,7 @@ describe("local executor", () => {
     const scriptsDir = path.join(skillDir, "scripts");
 
     await mkdir(scriptsDir, { recursive: true });
-    await writeFile(
-      path.join(scriptsDir, "sleep.mjs"),
-      `setTimeout(() => console.log("done"), 1000);`,
-      "utf8",
-    );
+    await writeFile(path.join(scriptsDir, "sleep.mjs"), `setTimeout(() => console.log("done"), 1000);`, "utf8");
 
     const result = await executeLocalScript({
       skillPath: skillDir,

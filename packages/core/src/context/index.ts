@@ -25,10 +25,7 @@ function buildCatalog(skills: SkillManifest[]): string {
     return "# Skill Catalog (Level 0)\n\nNo skills available.";
   }
 
-  const lines = [
-    "# Skill Catalog (Level 0)",
-    "",
-  ];
+  const lines = ["# Skill Catalog (Level 0)", ""];
   for (const skill of skills) {
     lines.push(`- ${skill.name}`);
     lines.push(`  Description: ${skill.description}`);

@@ -98,7 +98,10 @@ function getEnvSkillDirs(): string[] {
     return [];
   }
 
-  return rawSkillDir.split(",").map((entry) => entry.trim()).filter(Boolean);
+  return rawSkillDir
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function readRequestBody(request: IncomingMessage): Promise<string> {

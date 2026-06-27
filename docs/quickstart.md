@@ -2,37 +2,43 @@
 
 Run Agent Skills in any existing agent without rewriting a skill runtime.
 
-This guide gets you from a fresh checkout to a real skill scan in about five minutes.
+## Copy-Paste Demo
 
-## 1. Install
+From a fresh checkout:
 
 ```bash
 pnpm install
-```
-
-## 2. Build
-
-```bash
 pnpm build
-```
-
-## 3. Scan Example Skills
-
-```bash
 pnpm skillbridge scan examples/skills
 ```
 
-Expected result: JSON with `count: 3` and the example skills `Bid Writing`, `Code Review`, and `Lens Drawing`, including metadata, references, scripts, and assets.
+You should see the example skills, including `Bid Writing`, `Code Review`, and `Lens Drawing`.
 
-## Try Routing
+## Machine-Readable Output
+
+Every CLI command supports `--json`:
+
+```bash
+pnpm skillbridge scan examples/skills --json
+```
+
+Expected JSON includes:
+
+```json
+{
+  "count": 3,
+  "skills": []
+}
+```
+
+## Route And Activate
 
 ```bash
 pnpm skillbridge search examples/skills "PR risk review"
-pnpm skillbridge search examples/skills "Zemax CAD drawing"
 pnpm skillbridge activate examples/skills "write a bid response"
 ```
 
-`search` returns scored skill matches. `activate` returns the selected skill, generated `systemPatch`, tool instructions, and routing reasons.
+`search` prints scored matches. `activate` prints the selected skill and generated `systemPatch`.
 
 ## Read A Resource
 
@@ -40,19 +46,27 @@ pnpm skillbridge activate examples/skills "write a bid response"
 pnpm skillbridge read examples/skills/code-review references/.gitkeep
 ```
 
-The read command is restricted to files inside the skill directory.
+Resource reads are restricted to files inside the skill directory.
+
+## Run A Script
+
+Scripts are disabled unless explicitly enabled:
+
+```bash
+pnpm skillbridge run examples/skills/code-review scripts/check.mjs --enable-scripts
+```
 
 ## Trace Runtime Decisions
 
 ```bash
-pnpm skillbridge trace examples/skills
+pnpm skillbridge trace examples/skills --query "PR risk review" --explain
+pnpm skillbridge trace examples/skills --query "PR risk review" --json
 ```
 
-Trace output includes events such as `scan_start` and `scan_complete`.
+Trace output includes the selected skill, candidates, context token estimates, tool decisions, script decisions, and raw runtime events.
 
-## Run Tests
+## CI
 
 ```bash
-pnpm test
-pnpm check
+pnpm run ci
 ```

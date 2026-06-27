@@ -5,7 +5,8 @@ const patterns: Array<Omit<ScannerFinding, "match"> & { pattern: RegExp }> = [
     severity: "high",
     category: "prompt_injection",
     message: "Instruction attempts to override higher-priority prompts.",
-    pattern: /\b(ignore|bypass|override)\b.{0,60}\b(previous|system|developer)\b.{0,30}\b(instruction|prompt|message)s?\b/i,
+    pattern:
+      /\b(ignore|bypass|override)\b.{0,60}\b(previous|system|developer)\b.{0,30}\b(instruction|prompt|message)s?\b/i,
   },
   {
     severity: "high",

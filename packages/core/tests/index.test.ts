@@ -299,7 +299,8 @@ Review tradeoffs and risks.`,
       skills: [selectedSkill],
       selectedSkill,
       skillBodies: {
-        [selectedSkill.path]: "---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险",
+        [selectedSkill.path]:
+          "---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险",
       },
       budget: 180,
     });
@@ -319,7 +320,10 @@ Review tradeoffs and risks.`,
     });
     expect(context.progressiveLoading).toMatchObject({
       level1: { loaded: true, skillName: selectedSkill.name, source: "SKILL.md" },
-      level2: { loaded: false, references: ["references/very-long-reference-a.md", "references/very-long-reference-b.md"] },
+      level2: {
+        loaded: false,
+        references: ["references/very-long-reference-a.md", "references/very-long-reference-b.md"],
+      },
       level3: { loaded: false, scripts: ["scripts/run.sh"], assets: ["assets/icon.png"] },
     });
     expect(context.systemPatch.length).toBeLessThanOrEqual(260);

@@ -25,14 +25,18 @@ describe("policy", () => {
   });
 
   it("checks tool allow and deny lists", () => {
-    expect(checkToolAllowed({ name: "Review", path: "/skill", allowedTools: ["readResource"] }, "runScript")).toMatchObject({
+    expect(
+      checkToolAllowed({ name: "Review", path: "/skill", allowedTools: ["readResource"] }, "runScript"),
+    ).toMatchObject({
       allowed: false,
       code: "tool.not_allowed",
     });
-    expect(checkToolAllowed({ name: "Review", path: "/skill", deniedTools: ["runScript"] }, "runScript")).toMatchObject({
-      allowed: false,
-      code: "tool.denied",
-    });
+    expect(checkToolAllowed({ name: "Review", path: "/skill", deniedTools: ["runScript"] }, "runScript")).toMatchObject(
+      {
+        allowed: false,
+        code: "tool.denied",
+      },
+    );
   });
 
   it("checks trust levels", () => {

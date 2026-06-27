@@ -4,13 +4,13 @@ SkillBridge aims to run common `SKILL.md` style skill packages with minimal assu
 
 ## Matrix
 
-| Skill source | Compatibility | Notes |
-| --- | --- | --- |
-| Anthropic Agent Skills style directories | High | SkillBridge supports `SKILL.md`, frontmatter metadata, progressive disclosure, references, scripts, and assets. |
-| OpenClaw style skills | Partial | Compatible when the skill is represented as a directory with `SKILL.md` metadata and local resources. Runtime-specific conventions may need an adapter. |
-| Custom internal skills | High | Use the documented `SKILL.md` frontmatter and folders. |
-| Prompt-only skill collections | Partial | Convert each prompt into a `SKILL.md` with `name`, `description`, and optional keywords. |
-| Binary-heavy tool packs | Partial | Assets can be discovered and binary resources can be read, but model-facing outputs should stay small. |
+| Skill source                             | Compatibility | Notes                                                                                                                                                   |
+| ---------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Anthropic Agent Skills style directories | High          | SkillBridge supports `SKILL.md`, frontmatter metadata, progressive disclosure, references, scripts, and assets.                                         |
+| OpenClaw style skills                    | Partial       | Compatible when the skill is represented as a directory with `SKILL.md` metadata and local resources. Runtime-specific conventions may need an adapter. |
+| Custom internal skills                   | High          | Use the documented `SKILL.md` frontmatter and folders.                                                                                                  |
+| Prompt-only skill collections            | Partial       | Convert each prompt into a `SKILL.md` with `name`, `description`, and optional keywords.                                                                |
+| Binary-heavy tool packs                  | Partial       | Assets can be discovered and binary resources can be read, but model-facing outputs should stay small.                                                  |
 
 ## Required Shape
 
