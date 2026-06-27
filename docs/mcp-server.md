@@ -1,6 +1,6 @@
 # MCP Server
 
-The MCP server exposes SkillBridge through tool calls for MCP-compatible clients.
+The MCP server exposes SkillBridge with native MCP tools, resources, and prompts.
 
 ## Build
 
@@ -29,6 +29,14 @@ node packages/mcp-server/dist/server.js --skill-dir ./examples/skills --debug
 
 ## Tools
 
+Primary tools:
+
+- `skillbridge.search`
+- `skillbridge.activate`
+- `skillbridge.run_script`
+
+Compatibility tools retained for existing clients:
+
 - `skillbridge_list_skills`
 - `skillbridge_search_skills`
 - `skillbridge_activate_skill`
@@ -47,6 +55,36 @@ Resource and script tools prefer `skillName`:
 ```
 
 `skillPath` is still accepted as deprecated compatibility input and may be removed in `v0.2`.
+
+## Resources
+
+Skill files are exposed as MCP resources so clients can browse and read them with native resource UX:
+
+- `skill://{skillName}/SKILL.md`
+- `skill://{skillName}/references/{file}`
+- `skill://{skillName}/assets/{file}`
+
+Nested reference and asset paths are URL encoded inside `{file}`. For example:
+
+```text
+skill://Code%20Review/references/checklists%2Fpr-risk.md
+```
+
+Resources preserve progressive loading: catalog and selected `SKILL.md` are used for activation, while references and assets are read only when the client requests the resource.
+
+## Prompts
+
+The server registers workflow prompts:
+
+- `skillbridge-use-skill`
+- `skillbridge-debug-skill`
+- `skillbridge-create-skill`
+
+These prompts give MCP clients natural entry points for using, debugging, and authoring skills without turning every workflow into a custom tool.
+
+## Transport
+
+The current server runs over MCP stdio. Streamable HTTP is a natural next transport for hosted deployments, but the CLI entry point currently starts stdio only.
 
 ## Claude Desktop
 

@@ -1,8 +1,9 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { SkillBridgeRuntime } from "@skillbridge/core";
 import path from "node:path";
+import type { ResourceManagerResult } from "@skillbridge/core";
 
 export type SkillBridgeMcpServerOptions = {
   skillDirs: string[];
@@ -17,6 +18,251 @@ export function createMcpServer(options: SkillBridgeMcpServerOptions) {
     version: "0.1.0",
   });
 
+  registerNativeTools(server, runtime, options);
+  registerNativeResources(server, runtime);
+  registerNativePrompts(server);
+  registerLegacyTools(server, runtime, options);
+
+  return { server, runtime };
+}
+
+function registerNativeTools(
+  server: McpServer,
+  runtime: SkillBridgeRuntime,
+  options: SkillBridgeMcpServerOptions,
+): void {
+  server.registerTool(
+    "skillbridge.search",
+    {
+      title: "Search Skills",
+      description: "Search available skills for a user task.",
+      inputSchema: { query: z.string() },
+    },
+    async ({ query }) => {
+      const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
+      return {
+        content: [
+          {
+            type: "text",
+            text: stringifyResult(prepared.activeSkills, options.debug),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "skillbridge.activate",
+    {
+      title: "Activate Skill",
+      description: "Route a user task, load the selected SKILL.md body, and return runtime context.",
+      inputSchema: { query: z.string() },
+    },
+    async ({ query }) => {
+      const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
+      return {
+        content: [
+          {
+            type: "text",
+            text: stringifyResult(
+              {
+                activeSkills: prepared.activeSkills,
+                systemPatch: prepared.systemPatch,
+                progressiveLoading: prepared.progressiveLoading,
+                toolInstructions: prepared.toolInstructions,
+              },
+              options.debug,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "skillbridge.run_script",
+    {
+      title: "Run Skill Script",
+      description: "Run a script from the selected skill scripts directory. Disabled unless scripts are explicitly enabled.",
+      inputSchema: {
+        skillName: z.string(),
+        scriptPath: z.string(),
+        enableScripts: z.boolean().optional(),
+        timeoutMs: z.number().optional(),
+        args: z.array(z.string()).optional(),
+      },
+    },
+    async ({ skillName, scriptPath, enableScripts, timeoutMs, args }) => {
+      const result = await runScriptTool(runtime, options, {
+        skillName: skillName as string,
+        scriptPath: scriptPath as string,
+        enableScripts: enableScripts as boolean | undefined,
+        timeoutMs: timeoutMs as number | undefined,
+        args: args as string[] | undefined,
+      });
+
+      return {
+        content: [{ type: "text", text: stringifyResult(result, options.debug) }],
+      };
+    },
+  );
+}
+
+function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime): void {
+  const completion = {
+    skillName: async (value: string) => {
+      const { skills } = await ensureRuntimeInitialized(runtime);
+      const normalizedValue = value.toLowerCase();
+      return skills.map((skill) => skill.name).filter((name) => name.toLowerCase().includes(normalizedValue));
+    },
+  };
+
+  server.registerResource(
+    "skillbridge-skill-md",
+    new ResourceTemplate("skill://{skillName}/SKILL.md", {
+      list: async () => ({
+        resources: (await ensureRuntimeInitialized(runtime)).skills.map((skill) => ({
+          uri: toSkillUri(skill.name, "SKILL.md"),
+          name: `${skill.name} SKILL.md`,
+          title: `${skill.name} SKILL.md`,
+          description: skill.description,
+          mimeType: "text/markdown",
+        })),
+      }),
+      complete: completion,
+    }),
+    {
+      title: "Skill Instructions",
+      description: "Selected skill SKILL.md files.",
+      mimeType: "text/markdown",
+    },
+    async (uri, variables) => readSkillResourceUri(runtime, uri, variables.skillName as string, "SKILL.md"),
+  );
+
+  server.registerResource(
+    "skillbridge-reference",
+    new ResourceTemplate("skill://{skillName}/references/{file}", {
+      list: async () => listSkillResources(runtime, "references"),
+      complete: completion,
+    }),
+    {
+      title: "Skill References",
+      description: "Reference files exposed by skills.",
+    },
+    async (uri, variables) =>
+      readSkillResourceUri(runtime, uri, variables.skillName as string, `references/${variables.file as string}`),
+  );
+
+  server.registerResource(
+    "skillbridge-asset",
+    new ResourceTemplate("skill://{skillName}/assets/{file}", {
+      list: async () => listSkillResources(runtime, "assets"),
+      complete: completion,
+    }),
+    {
+      title: "Skill Assets",
+      description: "Asset files exposed by skills.",
+    },
+    async (uri, variables) =>
+      readSkillResourceUri(runtime, uri, variables.skillName as string, `assets/${variables.file as string}`),
+  );
+}
+
+function registerNativePrompts(server: McpServer): void {
+  server.registerPrompt(
+    "skillbridge-use-skill",
+    {
+      title: "Use SkillBridge Skill",
+      description: "Ask an agent to activate and use the best SkillBridge skill for a task.",
+      argsSchema: {
+        task: z.string(),
+      },
+    },
+    ({ task }) => ({
+      description: "Activate a skill and follow SkillBridge progressive loading.",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: [
+              `Task: ${task}`,
+              "",
+              "Use skillbridge.activate to select the best skill.",
+              "Load reference resources only when the selected SKILL.md instructions make them necessary.",
+              "Run scripts only when explicitly needed and allowed.",
+            ].join("\n"),
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    "skillbridge-debug-skill",
+    {
+      title: "Debug SkillBridge Skill",
+      description: "Inspect why a skill was or was not selected for a task.",
+      argsSchema: {
+        task: z.string(),
+      },
+    },
+    ({ task }) => ({
+      description: "Debug SkillBridge routing and progressive loading.",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: [
+              `Task: ${task}`,
+              "",
+              "Use skillbridge.search to inspect candidates and scores.",
+              "Use skillbridge.activate to inspect the selected systemPatch and progressiveLoading metadata.",
+              "Explain routing confidence, missing keywords, and which resources would be read next.",
+            ].join("\n"),
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    "skillbridge-create-skill",
+    {
+      title: "Create SkillBridge Skill",
+      description: "Draft a compatible SKILL.md package layout for a new skill.",
+      argsSchema: {
+        skillName: z.string(),
+        goal: z.string(),
+      },
+    },
+    ({ skillName, goal }) => ({
+      description: "Create a progressive SkillBridge skill package.",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: [
+              `Skill name: ${skillName}`,
+              `Goal: ${goal}`,
+              "",
+              "Draft a SKILL.md with name, description, metadata.keywords, permissions, and concise operating instructions.",
+              "Suggest references/, scripts/, and assets/ files only when they support progressive loading.",
+            ].join("\n"),
+          },
+        },
+      ],
+    }),
+  );
+}
+
+function registerLegacyTools(
+  server: McpServer,
+  runtime: SkillBridgeRuntime,
+  options: SkillBridgeMcpServerOptions,
+): void {
   server.tool("skillbridge_list_skills", {}, async () => {
     const { skills } = await runtime.init();
     return {
@@ -132,15 +378,11 @@ export function createMcpServer(options: SkillBridgeMcpServerOptions) {
       args: z.array(z.string()).optional(),
     },
     async ({ skillName, skillPath, scriptPath, enableScripts, timeoutMs, args }) => {
-      if (options.enableScripts !== true || enableScripts !== true) {
-        throw new Error("run_script is disabled by default. Pass enableScripts=true to allow execution.");
-      }
-
-      const skill = await resolveSkill(runtime, skillName as string | undefined, skillPath as string | undefined);
-      const result = await runtime.runScript({
-        skill,
+      const result = await runScriptTool(runtime, options, {
+        skillName: skillName as string | undefined,
+        skillPath: skillPath as string | undefined,
         scriptPath: scriptPath as string,
-        enableScripts: true,
+        enableScripts: enableScripts as boolean | undefined,
         timeoutMs: timeoutMs as number | undefined,
         args: (args as string[] | undefined) ?? [],
       });
@@ -150,12 +392,69 @@ export function createMcpServer(options: SkillBridgeMcpServerOptions) {
       };
     },
   );
-
-  return { server, runtime };
 }
+
 
 async function ensureRuntimeInitialized(runtime: SkillBridgeRuntime) {
   return runtime.init();
+}
+
+async function listSkillResources(runtime: SkillBridgeRuntime, kind: "references" | "assets") {
+  const { skills } = await ensureRuntimeInitialized(runtime);
+  const resources = skills.flatMap((skill) => {
+    const paths = kind === "references" ? skill.references : skill.assets;
+    return paths.map((resourcePath) => ({
+      uri: toSkillUri(skill.name, resourcePath),
+      name: `${skill.name} ${resourcePath}`,
+      title: `${skill.name}: ${resourcePath}`,
+      description: kind === "references" ? skill.description : `Asset from ${skill.name}`,
+    }));
+  });
+
+  return { resources };
+}
+
+async function readSkillResourceUri(
+  runtime: SkillBridgeRuntime,
+  uri: URL,
+  skillName: string,
+  resourcePath: string,
+) {
+  const skill = await resolveSkill(runtime, decodeURIComponent(skillName));
+  const resource = await runtime.readResource({
+    skillPath: skill.path,
+    resourcePath: decodeResourcePath(resourcePath),
+  });
+
+  return {
+    contents: [toMcpResourceContent(uri.toString(), resource)],
+  };
+}
+
+async function runScriptTool(
+  runtime: SkillBridgeRuntime,
+  options: SkillBridgeMcpServerOptions,
+  input: {
+    skillName?: string;
+    skillPath?: string;
+    scriptPath: string;
+    enableScripts?: boolean;
+    timeoutMs?: number;
+    args?: string[];
+  },
+) {
+  if (options.enableScripts !== true || input.enableScripts !== true) {
+    throw new Error("run_script is disabled by default. Pass enableScripts=true to allow execution.");
+  }
+
+  const skill = await resolveSkill(runtime, input.skillName, input.skillPath);
+  return runtime.runScript({
+    skill,
+    scriptPath: input.scriptPath,
+    enableScripts: true,
+    timeoutMs: input.timeoutMs,
+    args: input.args ?? [],
+  });
 }
 
 async function resolveSkill(runtime: SkillBridgeRuntime, skillName?: string, deprecatedSkillPath?: string) {
@@ -181,6 +480,36 @@ async function resolveSkill(runtime: SkillBridgeRuntime, skillName?: string, dep
   }
 
   throw new Error("skillName is required. Deprecated skillPath is still accepted until v0.2.");
+}
+
+function toSkillUri(skillName: string, resourcePath: string): string {
+  const normalizedResourcePath = resourcePath.split(path.sep).join("/");
+  if (normalizedResourcePath === "SKILL.md") {
+    return `skill://${encodeURIComponent(skillName)}/SKILL.md`;
+  }
+
+  const [firstSegment, ...rest] = normalizedResourcePath.split("/");
+  return `skill://${encodeURIComponent(skillName)}/${firstSegment}/${encodeURIComponent(rest.join("/"))}`;
+}
+
+function decodeResourcePath(resourcePath: string): string {
+  return decodeURIComponent(resourcePath).split("\\").join("/");
+}
+
+function toMcpResourceContent(uri: string, resource: ResourceManagerResult) {
+  if (resource.type === "text") {
+    return {
+      uri,
+      mimeType: resource.metadata.mimeType,
+      text: resource.content,
+    };
+  }
+
+  return {
+    uri,
+    mimeType: resource.metadata.mimeType,
+    blob: resource.content.toString("base64"),
+  };
 }
 
 function stringifyResult(value: unknown, debug?: boolean): string {

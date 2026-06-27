@@ -161,15 +161,27 @@ The router surface is intentionally pluggable: `RuleRouter` is the zero-dependen
 
 ## MCP Server
 
-The MCP server exposes:
+The MCP server exposes native MCP tools, resources, and prompts.
 
-- `skillbridge_list_skills`
-- `skillbridge_search_skills`
-- `skillbridge_activate_skill`
-- `skillbridge_read_skill`
-- `skillbridge_list_resources`
-- `skillbridge_read_resource`
-- `skillbridge_run_script`
+Tools:
+
+- `skillbridge.search`
+- `skillbridge.activate`
+- `skillbridge.run_script`
+
+Resources:
+
+- `skill://{skillName}/SKILL.md`
+- `skill://{skillName}/references/{file}`
+- `skill://{skillName}/assets/{file}`
+
+Prompts:
+
+- `skillbridge-use-skill`
+- `skillbridge-debug-skill`
+- `skillbridge-create-skill`
+
+Legacy underscore tool names such as `skillbridge_search_skills` and `skillbridge_read_resource` remain available for compatibility.
 
 Resource and script tools use `skillName`:
 
