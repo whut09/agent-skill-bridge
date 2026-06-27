@@ -11,6 +11,13 @@ import {
   type SkillManifest,
 } from "@skillbridge/core";
 import { Command } from "commander";
+import path from "node:path";
+
+type CliCommonOptions = {
+  json?: boolean;
+  debug?: boolean;
+  budget?: number;
+};
 
 function writeJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -29,11 +36,24 @@ function output(value: unknown, text: string, asJson: boolean): void {
   writeText(text);
 }
 
-function summarizeSkill(skill: SkillManifest) {
+function toSafeDisplayPath(candidatePath: string, debug: boolean): string {
+  if (debug || !path.isAbsolute(candidatePath)) {
+    return candidatePath;
+  }
+
+  const relativePath = path.relative(process.cwd(), candidatePath);
+  if (!relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
+    return relativePath.split(path.sep).join("/");
+  }
+
+  return path.basename(candidatePath);
+}
+
+function summarizeSkill(skill: SkillManifest, debug: boolean) {
   return {
     name: skill.name,
     description: skill.description,
-    path: skill.path,
+    path: toSafeDisplayPath(skill.path, debug),
     version: skill.version,
     license: skill.license,
     metadata: skill.metadata,
@@ -43,16 +63,24 @@ function summarizeSkill(skill: SkillManifest) {
   };
 }
 
-function serializeResource(result: ResourceManagerResult) {
+function serializeResource(result: ResourceManagerResult, debug: boolean) {
   if (result.type === "binary") {
     return {
       ...result,
+      path: toSafeDisplayPath(result.path, debug),
       content: result.content.toString("base64"),
       encoding: "base64",
     };
   }
 
-  return result;
+  return {
+    ...result,
+    path: toSafeDisplayPath(result.path, debug),
+    metadata: {
+      ...result.metadata,
+      path: toSafeDisplayPath(result.metadata.path, debug),
+    },
+  };
 }
 
 function formatSkillList(skillRoot: string, skills: SkillManifest[]): string {
@@ -96,23 +124,43 @@ function formatActivation(prepared: Awaited<ReturnType<SkillBridgeRuntime["prepa
   ].join("\n");
 }
 
-function formatResource(result: ResourceManagerResult): string {
+function formatResource(result: ResourceManagerResult, debug: boolean): string {
+  const resourcePath = toSafeDisplayPath(result.metadata.path, debug);
   if (result.type === "binary") {
     return [
-      `Resource: ${result.metadata.path}`,
+      `Resource: ${resourcePath}`,
       `Type: binary`,
       `MIME: ${result.metadata.mimeType}`,
       `Bytes: ${result.content.length}`,
     ].join("\n");
   }
 
-  return [
-    `Resource: ${result.metadata.path}`,
-    `Type: text`,
-    `MIME: ${result.metadata.mimeType}`,
-    "",
-    result.content,
-  ].join("\n");
+  return [`Resource: ${resourcePath}`, `Type: text`, `MIME: ${result.metadata.mimeType}`, "", result.content].join(
+    "\n",
+  );
+}
+
+function addCommonOptions(command: Command, includeBudget = false): Command {
+  command.option("--json", "print machine-readable JSON output", false);
+  command.option("--debug", "include debug details such as absolute paths", false);
+  if (includeBudget) {
+    command.option("--budget <number>", "context budget", (value) => Number(value));
+  } else {
+    command.option("--budget <number>", "accepted for command consistency", (value) => Number(value));
+  }
+
+  return command;
+}
+
+async function resolveSkillByName(skillRoot: string, skillName: string): Promise<SkillManifest> {
+  const runtime = new SkillBridgeRuntime([skillRoot]);
+  await runtime.init();
+  const skill = runtime.getSkillByName(skillName);
+  if (!skill) {
+    throw new Error(`Skill not found by name: ${skillName}`);
+  }
+
+  return skill;
 }
 
 function explainTrace(record: RuntimeTraceRecord): string {
@@ -155,18 +203,24 @@ function explainTrace(record: RuntimeTraceRecord): string {
 export function createCliProgram(): Command {
   const program = new Command();
   let jsonOutput = false;
+  let debugOutput = false;
 
   program.name("skillbridge").description("agent-skill-bridge CLI").version("0.1.0");
   program.option("--json", "print machine-readable JSON output", false);
+  program.option("--debug", "include debug details such as absolute paths", false);
+  program.option("--budget <number>", "default context budget", (value) => Number(value));
   program.hook("preAction", (thisCommand, actionCommand) => {
-    jsonOutput = Boolean(thisCommand.opts<{ json: boolean }>().json || actionCommand.opts<{ json?: boolean }>().json);
+    const rootOptions = thisCommand.opts<CliCommonOptions>();
+    const actionOptions = actionCommand.opts<CliCommonOptions>();
+    jsonOutput = Boolean(rootOptions.json || actionOptions.json);
+    debugOutput = Boolean(rootOptions.debug || actionOptions.debug);
   });
 
   const wantsJson = () => jsonOutput;
+  const wantsDebug = () => debugOutput;
+  const rootBudget = () => program.opts<CliCommonOptions>().budget;
 
-  program
-    .command("doctor")
-    .option("--json", "print machine-readable JSON output", false)
+  addCommonOptions(program.command("doctor"))
     .description("Inspect the local runtime setup")
     .action(() => {
       const result = {
@@ -177,25 +231,21 @@ export function createCliProgram(): Command {
       output(result, `agent-skill-bridge: ok\nCommands: ${result.commands.join(", ")}`, wantsJson());
     });
 
-  program
-    .command("scan")
+  addCommonOptions(program.command("scan"))
     .argument("[path]", "path to a skill root directory", ".")
-    .option("--json", "print machine-readable JSON output", false)
     .description("Scan a skill root and print discovered skill manifests")
     .action(async (skillRoot: string) => {
       const skills = await scanSkillDirs([skillRoot]);
       const result = {
         skillRoot,
         count: skills.length,
-        skills: skills.map(summarizeSkill),
+        skills: skills.map((skill) => summarizeSkill(skill, wantsDebug())),
       };
       output(result, formatSkillList(skillRoot, skills), wantsJson());
     });
 
-  program
-    .command("validate")
+  addCommonOptions(program.command("validate"))
     .argument("[path]", "path to a skill root directory", ".")
-    .option("--json", "print machine-readable JSON output", false)
     .description("Validate that skills can be scanned and parsed")
     .action(async (skillRoot: string) => {
       try {
@@ -218,12 +268,10 @@ export function createCliProgram(): Command {
       }
     });
 
-  program
-    .command("search")
+  addCommonOptions(program.command("search"))
     .argument("<path>", "path to a skill root directory")
     .argument("<query>", "user task query")
     .description("Search skills for a user task")
-    .option("--json", "print machine-readable JSON output", false)
     .option("--top-k <number>", "maximum number of results", (value) => Number(value), 5)
     .option("--min-score <number>", "minimum normalized score", (value) => Number(value), 0.15)
     .action(async (skillRoot: string, query: string, options: { topK: number; minScore: number }) => {
@@ -235,7 +283,7 @@ export function createCliProgram(): Command {
       const result = {
         query,
         results: results.map((result) => ({
-          skill: summarizeSkill(result.skill),
+          skill: summarizeSkill(result.skill, wantsDebug()),
           score: result.score,
           reason: result.reason,
         })),
@@ -243,55 +291,58 @@ export function createCliProgram(): Command {
       output(result, formatSearchResults(query, results), wantsJson());
     });
 
-  program
-    .command("activate")
+  addCommonOptions(program.command("activate"), true)
     .argument("<path>", "path to a skill root directory")
     .argument("<query>", "user task query")
     .description("Select a skill and print the runtime context")
-    .option("--json", "print machine-readable JSON output", false)
-    .option("--budget <number>", "context budget", (value) => Number(value))
     .action(async (skillRoot: string, query: string, options: { budget?: number }) => {
       const runtime = new SkillBridgeRuntime([skillRoot]);
       await runtime.init();
       const prepared = await runtime.prepare({
         messages: [{ role: "user", content: query }],
         userMessage: query,
-        budget: options.budget,
+        budget: options.budget ?? rootBudget(),
       });
       output(prepared, formatActivation(prepared), wantsJson());
     });
 
-  program
-    .command("read")
-    .argument("<skillPath>", "path to a single skill directory")
-    .argument("<resourcePath>", "resource path inside the skill directory")
-    .description("Read a resource from a skill directory")
-    .option("--json", "print machine-readable JSON output", false)
-    .action(async (skillPath: string, resourcePath: string) => {
-      const result = await readSkillResource({ skillPath, resourcePath });
-      output(serializeResource(result), formatResource(result), wantsJson());
+  addCommonOptions(program.command("read"))
+    .argument("<skillRootOrPath>", "skill root directory, or a single skill directory for legacy usage")
+    .argument("<skillNameOrResourcePath>", "skill name, or resource path for legacy usage")
+    .argument("[resourcePath]", "resource path inside the skill directory")
+    .description("Read a resource from a named skill or skill directory")
+    .action(async (skillRootOrPath: string, skillNameOrResourcePath: string, resourcePath?: string) => {
+      const skillPath = resourcePath
+        ? (await resolveSkillByName(skillRootOrPath, skillNameOrResourcePath)).path
+        : skillRootOrPath;
+      const resolvedResourcePath = resourcePath ?? skillNameOrResourcePath;
+      const result = await readSkillResource({ skillPath, resourcePath: resolvedResourcePath });
+      output(serializeResource(result, wantsDebug()), formatResource(result, wantsDebug()), wantsJson());
     });
 
-  program
-    .command("run")
-    .argument("<skillPath>", "path to a single skill directory")
-    .argument("<scriptPath>", "script path inside scripts/")
-    .description("Run a skill script from scripts/")
-    .option("--json", "print machine-readable JSON output", false)
+  addCommonOptions(program.command("run"))
+    .argument("<skillRootOrPath>", "skill root directory, or a single skill directory for legacy usage")
+    .argument("<skillNameOrScriptPath>", "skill name, or script path for legacy usage")
+    .argument("[scriptPath]", "script path inside scripts/")
+    .description("Run a skill script from a named skill or skill directory")
     .option("--enable-scripts", "allow local script execution", false)
     .option("--timeout-ms <number>", "script timeout in milliseconds", (value) => Number(value))
     .option("--arg <value>", "script argument", (value, previous: string[]) => [...previous, value], [])
     .action(
       async (
-        skillPath: string,
-        scriptPath: string,
+        skillRootOrPath: string,
+        skillNameOrScriptPath: string,
+        scriptPath: string | undefined,
         options: { enableScripts: boolean; timeoutMs?: number; arg: string[] },
       ) => {
-        const skill = await parseSkillDir(skillPath);
-        const runtime = new SkillBridgeRuntime([skillPath]);
+        const skill = scriptPath
+          ? await resolveSkillByName(skillRootOrPath, skillNameOrScriptPath)
+          : await parseSkillDir(skillRootOrPath);
+        const resolvedScriptPath = scriptPath ?? skillNameOrScriptPath;
+        const runtime = new SkillBridgeRuntime([skill.path]);
         const result = await runtime.runScript({
           skill,
-          scriptPath,
+          scriptPath: resolvedScriptPath,
           enableScripts: options.enableScripts,
           timeoutMs: options.timeoutMs,
           args: options.arg,
@@ -299,7 +350,7 @@ export function createCliProgram(): Command {
         output(
           result,
           [
-            `Script: ${scriptPath}`,
+            `Script: ${resolvedScriptPath}`,
             `Exit code: ${result.exitCode}`,
             `Timed out: ${result.timedOut}`,
             "",
@@ -314,15 +365,13 @@ export function createCliProgram(): Command {
       },
     );
 
-  program
-    .command("trace")
+  addCommonOptions(program.command("trace"))
     .argument("[path]", "path to a skill root directory", ".")
     .description("Print runtime trace events or an explainable trace record")
     .option("--query <query>", "user task query to activate before printing trace")
     .option("--last", "print the last standard trace record", false)
-    .option("--json", "print the standard trace record as JSON", false)
     .option("--explain", "print a human-readable trace explanation", false)
-    .action(async (skillRoot: string, options: { query?: string; last: boolean; json: boolean; explain: boolean }) => {
+    .action(async (skillRoot: string, options: { query?: string; last: boolean; explain: boolean }) => {
       const runtime = new SkillBridgeRuntime([skillRoot]);
       await runtime.init();
       if (options.query) {
@@ -337,7 +386,7 @@ export function createCliProgram(): Command {
         return;
       }
 
-      if (options.last || options.json || wantsJson()) {
+      if (options.last || wantsJson()) {
         writeJson(runtime.getTraceRecord());
         return;
       }

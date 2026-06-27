@@ -41,8 +41,8 @@ metadata:
 - Check risks`,
     "utf8",
   );
-  await writeFile(path.join(skillDir, "references", "checklist.md"), "review checklist", "utf8");
-  await writeFile(path.join(skillDir, "scripts", "check.mjs"), `console.log("script ok");`, "utf8");
+  await writeFile(path.join(skillDir, "references", "guide.md"), "review guide", "utf8");
+  await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("script ok");`, "utf8");
 
   return { skillRoot, skillDir };
 }
@@ -91,8 +91,8 @@ describe("cli package", () => {
     expect(scanOutput.count).toBe(1);
     expect(scanOutput.skills[0]).toMatchObject({
       name: "Code Review",
-      references: ["references/checklist.md"],
-      scripts: ["scripts/check.mjs"],
+      references: ["references/guide.md"],
+      scripts: ["scripts/echo.mjs"],
     });
     expect(validateOutput).toMatchObject({ ok: true, count: 1 });
   });
@@ -117,21 +117,23 @@ describe("cli package", () => {
   });
 
   it("reads resources and runs scripts when enabled", async () => {
-    const { skillDir } = await createFixtureSkillRoot();
-    const prettyReadOutput = await runCli(["read", skillDir, "references/checklist.md"]);
-    const readOutput = parseJsonOutput(await runCli(["read", skillDir, "references/checklist.md", "--json"])) as {
+    const { skillRoot, skillDir } = await createFixtureSkillRoot();
+    const prettyReadOutput = await runCli(["read", skillDir, "references/guide.md"]);
+    const readOutput = parseJsonOutput(
+      await runCli(["read", skillRoot, "Code Review", "references/guide.md", "--json", "--debug"]),
+    ) as {
       type: string;
       content: string;
     };
     const runOutput = parseJsonOutput(
-      await runCli(["run", skillDir, "scripts/check.mjs", "--enable-scripts", "--json"]),
+      await runCli(["run", skillRoot, "Code Review", "scripts/echo.mjs", "--enable-scripts", "--json"]),
     ) as {
       stdout: string;
       exitCode: number;
     };
 
-    expect(prettyReadOutput).toContain("review checklist");
-    expect(readOutput).toMatchObject({ type: "text", content: "review checklist" });
+    expect(prettyReadOutput).toContain("review guide");
+    expect(readOutput).toMatchObject({ type: "text", content: "review guide" });
     expect(runOutput.stdout).toContain("script ok");
     expect(runOutput.exitCode).toBe(0);
   });
@@ -160,5 +162,20 @@ describe("cli package", () => {
     expect(jsonOutput.context.skillTokens).toBeGreaterThan(0);
     expect(explainOutput).toContain("Selected skill: Code Review");
     expect(explainOutput).toContain("Context:");
+  });
+
+  it("accepts debug and budget on common commands", async () => {
+    const { skillRoot } = await createFixtureSkillRoot();
+    const scanOutput = parseJsonOutput(await runCli(["scan", skillRoot, "--json", "--debug", "--budget", "4000"])) as {
+      skills: Array<{ path: string }>;
+    };
+    const activateOutput = parseJsonOutput(
+      await runCli(["activate", skillRoot, "PR risk", "--json", "--budget", "4000"]),
+    ) as {
+      systemPatch: string;
+    };
+
+    expect(path.isAbsolute(scanOutput.skills[0].path)).toBe(true);
+    expect(activateOutput.systemPatch).toContain("Code Review");
   });
 });

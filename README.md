@@ -293,12 +293,16 @@ x-skillbridge-trace-id: <uuid>
 ```bash
 skillbridge doctor
 skillbridge scan ./examples/skills
+skillbridge search ./examples/skills "PR risk review"
+skillbridge activate ./examples/skills "code review" --budget 4000
+skillbridge read ./examples/skills "Code Review" references/guide.md
+skillbridge run ./examples/skills "Code Review" scripts/echo.mjs --enable-scripts
 skillbridge trace ./examples/skills
 skillbridge trace ./examples/skills --query "PR risk" --json
 skillbridge trace ./examples/skills --query "PR risk" --explain
 ```
 
-`skillbridge trace` scans the given skill directory and prints runtime trace events by default. Use `--json` or `--last` for the standard audit record, and `--explain` for a human-readable run explanation.
+Every CLI command accepts `--json`, `--debug`, and `--budget <number>`. `skillbridge trace` scans the given skill directory and prints runtime trace events by default. Use `--json` or `--last` for the standard audit record, and `--explain` for a human-readable run explanation.
 
 ## Trace Events
 

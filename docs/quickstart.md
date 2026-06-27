@@ -35,7 +35,7 @@ Expected JSON includes:
 
 ```bash
 pnpm skillbridge search examples/skills "PR risk review"
-pnpm skillbridge activate examples/skills "write a bid response"
+pnpm skillbridge activate examples/skills "code review" --budget 4000
 ```
 
 `search` prints scored matches. `activate` prints the selected skill and generated `systemPatch`.
@@ -43,7 +43,7 @@ pnpm skillbridge activate examples/skills "write a bid response"
 ## Read A Resource
 
 ```bash
-pnpm skillbridge read examples/skills/code-review references/.gitkeep
+pnpm skillbridge read examples/skills "Code Review" references/guide.md
 ```
 
 Resource reads are restricted to files inside the skill directory.
@@ -53,7 +53,7 @@ Resource reads are restricted to files inside the skill directory.
 Scripts are disabled unless explicitly enabled:
 
 ```bash
-pnpm skillbridge run examples/skills/code-review scripts/check.mjs --enable-scripts
+pnpm skillbridge run examples/skills "Code Review" scripts/echo.mjs --enable-scripts
 ```
 
 ## Trace Runtime Decisions
