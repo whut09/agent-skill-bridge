@@ -12,16 +12,59 @@ export type SkillRouteInput = {
   candidates?: SkillSearchResult[];
 };
 
+export type SkillRerankInput = SkillRouteInput & {
+  candidates: SkillSearchResult[];
+};
+
 export interface SkillRouter {
+  search(
+    query: string,
+    skills: SkillManifest[],
+    options?: SkillSearchOptions,
+  ): Promise<SkillSearchResult[]> | SkillSearchResult[];
+}
+
+export interface SkillActivationRouter extends SkillRouter {
   route(input: SkillRouteInput): Promise<ActivationDecision> | ActivationDecision;
 }
 
-export type EmbeddingRouterOptions = {
-  route?: (input: SkillRouteInput) => Promise<ActivationDecision> | ActivationDecision;
+export interface SkillCandidateFilter {
+  filter(input: SkillRerankInput): Promise<SkillSearchResult[]> | SkillSearchResult[];
+}
+
+export interface SkillReranker {
+  rerank(input: SkillRerankInput): Promise<SkillSearchResult[]> | SkillSearchResult[];
+}
+
+export type SkillRoutePipelineOptions = {
+  router?: SkillRouter;
+  policyFilter?: SkillCandidateFilter;
+  reranker?: SkillReranker;
 };
 
-export type LlmRouterOptions = {
-  route?: (input: SkillRouteInput) => Promise<ActivationDecision> | ActivationDecision;
+export type SkillRoutePipelineTrace = {
+  retrieved: SkillSearchResult[];
+  policyFiltered: SkillSearchResult[];
+  reranked: SkillSearchResult[];
+};
+
+export type SkillRoutePipelineResult = {
+  decision: ActivationDecision;
+  trace: SkillRoutePipelineTrace;
+};
+
+export type EmbeddingRouterOptions = {
+  search?: (input: SkillRouteInput) => Promise<SkillSearchResult[]> | SkillSearchResult[];
+};
+
+export type LlmRerankRouterOptions = {
+  rerank?: (input: SkillRerankInput) => Promise<SkillSearchResult[]> | SkillSearchResult[];
+};
+
+export type LlmRouterOptions = LlmRerankRouterOptions;
+
+export type PolicyFilterOptions = {
+  allowUntrusted?: boolean;
 };
 
 function normalizeText(value: string): string {
@@ -181,23 +224,36 @@ function createActivationDecision(query: string, candidates: SkillSearchResult[]
   };
 }
 
-export class RuleRouter implements SkillRouter {
+export class RuleRouter implements SkillActivationRouter {
+  search(query: string, skills: SkillManifest[], options?: SkillSearchOptions): SkillSearchResult[] {
+    return searchSkills(query, skills, options);
+  }
+
   route(input: SkillRouteInput): ActivationDecision {
-    const candidates = searchSkills(input.query, input.skills, input.options);
+    const candidates = this.search(input.query, input.skills, input.options);
     return createActivationDecision(input.query, candidates);
   }
 }
 
-export class EmbeddingRouter implements SkillRouter {
+export class EmbeddingRouter implements SkillActivationRouter {
   constructor(private readonly options: EmbeddingRouterOptions = {}) {}
 
+  async search(query: string, skills: SkillManifest[], options?: SkillSearchOptions): Promise<SkillSearchResult[]> {
+    if (!this.options.search) {
+      return [];
+    }
+
+    return this.options.search({ query, skills, options });
+  }
+
   async route(input: SkillRouteInput): Promise<ActivationDecision> {
-    if (!this.options.route) {
+    const candidates = await this.search(input.query, input.skills, input.options);
+    if (candidates.length === 0 && !this.options.search) {
       return {
         runId: "",
         query: input.query,
         selected: false,
-        candidates: (input.candidates ?? []).map(decorateCandidate),
+        candidates: [],
         confidence: 0,
         reason: "EmbeddingRouter is not configured.",
         systemPatch: "",
@@ -208,22 +264,51 @@ export class EmbeddingRouter implements SkillRouter {
       };
     }
 
-    return this.options.route(input);
+    return createActivationDecision(input.query, candidates);
   }
 }
 
-export class LlmRouter implements SkillRouter {
-  constructor(private readonly options: LlmRouterOptions = {}) {}
+export class PolicyFilter implements SkillCandidateFilter {
+  constructor(private readonly options: PolicyFilterOptions = {}) {}
+
+  filter(input: SkillRerankInput): SkillSearchResult[] {
+    if (this.options.allowUntrusted) {
+      return input.candidates;
+    }
+
+    return input.candidates.filter((candidate) => {
+      const trust = candidate.skill.rawFrontmatter?.trust ?? candidate.skill.frontmatter.trust;
+      return trust !== "untrusted";
+    });
+  }
+}
+
+export class LlmRerankRouter implements SkillActivationRouter, SkillReranker {
+  constructor(private readonly options: LlmRerankRouterOptions = {}) {}
+
+  async rerank(input: SkillRerankInput): Promise<SkillSearchResult[]> {
+    if (!this.options.rerank) {
+      return input.candidates;
+    }
+
+    return this.options.rerank(input);
+  }
+
+  async search(): Promise<SkillSearchResult[]> {
+    return [];
+  }
 
   async route(input: SkillRouteInput): Promise<ActivationDecision> {
-    if (!this.options.route) {
+    const candidates = input.candidates ?? [];
+    const reranked = await this.rerank({ ...input, candidates });
+    if (reranked.length === 0 && !this.options.rerank) {
       return {
         runId: "",
         query: input.query,
         selected: false,
-        candidates: (input.candidates ?? []).map(decorateCandidate),
+        candidates: [],
         confidence: 0,
-        reason: "LlmRouter is not configured.",
+        reason: "LlmRerankRouter requires candidates from a retrieval router.",
         systemPatch: "",
         allowedTools: [],
         nextActions: ["none"],
@@ -232,9 +317,11 @@ export class LlmRouter implements SkillRouter {
       };
     }
 
-    return this.options.route(input);
+    return createActivationDecision(input.query, reranked);
   }
 }
+
+export class LlmRouter extends LlmRerankRouter {}
 
 export function searchSkills(
   query: string,
@@ -256,7 +343,76 @@ export function routeSkills(
   query: string,
   skills: SkillManifest[],
   options: SkillSearchOptions = {},
-  router: SkillRouter = new RuleRouter(),
+  routerOrPipeline: SkillRouter | SkillRoutePipelineOptions = new RuleRouter(),
 ): Promise<ActivationDecision> | ActivationDecision {
-  return router.route({ query, skills, options });
+  const pipeline = "search" in routerOrPipeline ? { router: routerOrPipeline } : routerOrPipeline;
+  const router = pipeline.router ?? new RuleRouter();
+  const result = routeSkillsWithTrace(query, skills, options, {
+    router,
+    policyFilter: pipeline.policyFilter,
+    reranker: pipeline.reranker,
+  });
+
+  if (result instanceof Promise) {
+    return result.then((resolved) => resolved.decision);
+  }
+
+  return result.decision;
+}
+
+export function routeSkillsWithTrace(
+  query: string,
+  skills: SkillManifest[],
+  options: SkillSearchOptions = {},
+  pipeline: SkillRoutePipelineOptions = {},
+): Promise<SkillRoutePipelineResult> | SkillRoutePipelineResult {
+  const router = pipeline.router ?? new RuleRouter();
+  const policyFilter = pipeline.policyFilter ?? new PolicyFilter();
+
+  const buildResult = (
+    retrieved: SkillSearchResult[],
+    policyFiltered: SkillSearchResult[],
+    reranked: SkillSearchResult[],
+  ): SkillRoutePipelineResult => ({
+    decision: createActivationDecision(query, reranked),
+    trace: {
+      retrieved,
+      policyFiltered,
+      reranked,
+    },
+  });
+
+  const applyReranker = (
+    retrieved: SkillSearchResult[],
+    policyFiltered: SkillSearchResult[],
+  ): Promise<SkillRoutePipelineResult> | SkillRoutePipelineResult => {
+    if (!pipeline.reranker) {
+      return buildResult(retrieved, policyFiltered, policyFiltered);
+    }
+
+    const reranked = pipeline.reranker.rerank({ query, skills, options, candidates: policyFiltered });
+    if (reranked instanceof Promise) {
+      return reranked.then((resolved) => buildResult(retrieved, policyFiltered, resolved));
+    }
+
+    return buildResult(retrieved, policyFiltered, reranked);
+  };
+
+  const applyPolicyFilter = (
+    retrieved: SkillSearchResult[],
+  ): Promise<SkillRoutePipelineResult> | SkillRoutePipelineResult => {
+    const policyFiltered = policyFilter.filter({ query, skills, options, candidates: retrieved });
+    if (policyFiltered instanceof Promise) {
+      return policyFiltered.then((resolved) => applyReranker(retrieved, resolved));
+    }
+
+    return applyReranker(retrieved, policyFiltered);
+  };
+
+  const retrieved = router.search(query, skills, options);
+  if (retrieved instanceof Promise) {
+    return retrieved.then(applyPolicyFilter);
+  }
+
+  return applyPolicyFilter(retrieved);
 }

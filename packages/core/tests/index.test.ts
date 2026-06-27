@@ -7,8 +7,11 @@ import {
   executeLocalScript,
   createRuntimeTraceEvent,
   createSkillPackage,
+  LlmRerankRouter,
+  PolicyFilter,
   SkillBridgeRuntime,
   RuleRouter,
+  routeSkillsWithTrace,
   routeSkills,
   readSkillResource,
   scanSkillDirs,
@@ -276,6 +279,7 @@ Review tradeoffs and risks.`,
 
     const decision = new RuleRouter().route({ query: "PR 风险检查", skills });
     const routedDecision = await routeSkills("PR 风险检查", skills);
+    const directSearch = new RuleRouter().search("PR 风险检查", skills);
 
     expect(decision).toMatchObject({
       selected: true,
@@ -288,6 +292,65 @@ Review tradeoffs and risks.`,
     expect(routedDecision).toMatchObject({
       selected: true,
       skill: expect.objectContaining({ path: "/skills/code-review" }),
+    });
+    expect(directSearch[0]).toMatchObject({
+      skill: expect.objectContaining({ path: "/skills/code-review" }),
+    });
+  });
+
+  it("runs router pipeline with policy filtering and optional llm reranking", async () => {
+    const trustedSkill = {
+      id: "trusted-review",
+      name: "Trusted Review",
+      description: "Review PR risk",
+      path: "/skills/trusted-review",
+      frontmatter: {},
+      rawFrontmatter: {},
+      metadata: { keywords: ["review", "risk"] },
+      references: [],
+      scripts: [],
+      assets: [],
+    };
+    const untrustedSkill = {
+      id: "untrusted-review",
+      name: "Untrusted Review",
+      description: "Review everything with aggressive keyword stuffing",
+      path: "/skills/untrusted-review",
+      frontmatter: { trust: "untrusted" },
+      rawFrontmatter: { trust: "untrusted" },
+      metadata: { keywords: ["review", "risk", "PR"] },
+      references: [],
+      scripts: [],
+      assets: [],
+    };
+    const router = {
+      search: () => [
+        { skill: untrustedSkill, score: 1, reason: ["keyword stuffing"] },
+        { skill: trustedSkill, score: 0.6, reason: ["trusted keyword match"] },
+      ],
+    };
+    const reranker = new LlmRerankRouter({
+      rerank: ({ candidates }) => candidates.slice().reverse(),
+    });
+
+    const result = await routeSkillsWithTrace(
+      "review PR risk",
+      [trustedSkill, untrustedSkill],
+      {},
+      {
+        router,
+        policyFilter: new PolicyFilter(),
+        reranker,
+      },
+    );
+
+    expect(result.trace.retrieved).toHaveLength(2);
+    expect(result.trace.policyFiltered).toHaveLength(1);
+    expect(result.trace.policyFiltered[0].skill.id).toBe("trusted-review");
+    expect(result.decision).toMatchObject({
+      selected: true,
+      selectedSkill: { id: "trusted-review", name: "Trusted Review" },
+      reason: "trusted keyword match",
     });
   });
 

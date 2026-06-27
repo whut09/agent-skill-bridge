@@ -232,13 +232,22 @@ Trace events include `type`, `message`, `timestamp`, and optional `metadata`.
 For SDK, MCP, and proxy integrations, prefer the router API:
 
 ```ts
-import { RuleRouter, routeSkills } from "@skillbridge/core";
+import { LlmRerankRouter, PolicyFilter, RuleRouter, routeSkills, routeSkillsWithTrace } from "@skillbridge/core";
 
 const decision = await routeSkills("review this PR", skills);
-const ruleDecision = await new RuleRouter().route({
-  query: "review this PR",
+
+const traced = await routeSkillsWithTrace(
+  "review this PR",
   skills,
-});
+  { topK: 5 },
+  {
+    router: new RuleRouter(),
+    policyFilter: new PolicyFilter(),
+    reranker: new LlmRerankRouter({
+      rerank: async ({ candidates }) => candidates,
+    }),
+  },
+);
 ```
 
 `ActivationDecision` contains:
@@ -257,4 +266,11 @@ const ruleDecision = await new RuleRouter().route({
 - `requiredResources`: resources the router expects to load.
 - `requiredTools`: tools the router expects to expose.
 
-`RuleRouter` is the default zero-dependency router. `EmbeddingRouter` and `LlmRouter` are pluggable shells for external vector recall and model reranking integrations.
+The routing pipeline is:
+
+1. `RuleRouter` or `EmbeddingRouter` retrieves topK candidates.
+2. `PolicyFilter` removes untrusted candidates by default.
+3. `LlmRerankRouter` can rerank only the remaining candidates.
+4. `ActivationDecision` selects the final skill or declines activation.
+
+`RuleRouter` is the default zero-dependency router. `EmbeddingRouter` and `LlmRerankRouter` are optional adapter shells, so SkillBridge does not require embedding or LLM dependencies at install time. `routeSkillsWithTrace()` returns `retrieved`, `policyFiltered`, and `reranked` lists for explainability.

@@ -48,6 +48,25 @@ if (decision.selected && decision.skill) {
 
 Use `decision.candidates` for UI/debugging and `decision.confidence` for host-specific thresholds. More advanced adapters can replace the default `RuleRouter` with embedding or LLM rerank logic while preserving the same `ActivationDecision` shape.
 
+```ts
+import { EmbeddingRouter, LlmRerankRouter, PolicyFilter, routeSkillsWithTrace } from "@skillbridge/core";
+
+const traced = await routeSkillsWithTrace(
+  userMessage,
+  skills,
+  { topK: 10 },
+  {
+    router: new EmbeddingRouter({
+      search: async ({ query, skills }) => vectorSearch(query, skills),
+    }),
+    policyFilter: new PolicyFilter(),
+    reranker: new LlmRerankRouter({
+      rerank: async ({ query, candidates }) => llmRerank(query, candidates),
+    }),
+  },
+);
+```
+
 ## Tool Mapping
 
 Map native agent tools to runtime calls:

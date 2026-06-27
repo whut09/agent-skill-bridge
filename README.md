@@ -202,7 +202,16 @@ For reusable routing decisions, use `routeSkills()` or `RuleRouter`. They return
 }
 ```
 
-The router surface is intentionally pluggable: `RuleRouter` is the zero-dependency default, while `EmbeddingRouter` and `LlmRouter` provide integration points for vector recall and model reranking.
+The router surface is intentionally pluggable and explainable:
+
+```text
+RuleRouter or EmbeddingRouter retrieves topK candidates
+  -> PolicyFilter removes untrusted candidates
+  -> LlmRerankRouter optionally reranks the remaining topK
+  -> ActivationDecision
+```
+
+`RuleRouter` is the zero-dependency default. `EmbeddingRouter` accepts an optional search callback for vector recall, and `LlmRerankRouter` accepts an optional rerank callback for final model judgment. Use `routeSkillsWithTrace()` when you need retrieved, policy-filtered, and reranked candidate lists for debugging or audits.
 
 ## MCP Server
 
