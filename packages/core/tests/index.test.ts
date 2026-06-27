@@ -8,6 +8,8 @@ import {
   createRuntimeTraceEvent,
   createSkillPackage,
   SkillBridgeRuntime,
+  RuleRouter,
+  routeSkills,
   readSkillResource,
   scanSkillDirs,
   searchSkills,
@@ -162,7 +164,7 @@ Review tradeoffs and risks.`,
     expect(results[0].reason.join(" ")).toContain("keywords matched");
   });
 
-  it("searches skills by name description and keywords", () => {
+  it("searches skills by name description and keywords", async () => {
     const skills = [
       {
         name: "标书撰写",
@@ -236,6 +238,22 @@ Review tradeoffs and risks.`,
       expect(result.score).toBeGreaterThanOrEqual(0);
       expect(result.score).toBeLessThanOrEqual(1);
     }
+
+    const decision = new RuleRouter().route({ query: "PR 风险检查", skills });
+    const routedDecision = await routeSkills("PR 风险检查", skills);
+
+    expect(decision).toMatchObject({
+      selected: true,
+      skill: expect.objectContaining({ path: "/skills/code-review" }),
+      confidence: expect.any(Number),
+      candidates: expect.any(Array),
+      requiredResources: [],
+      requiredTools: [],
+    });
+    expect(routedDecision).toMatchObject({
+      selected: true,
+      skill: expect.objectContaining({ path: "/skills/code-review" }),
+    });
   });
 
   it("builds catalog-only context by default", async () => {
@@ -384,6 +402,12 @@ description: 对代码改动进行审查、指出问题并给出建议
 
     expect(initResult.skills).toHaveLength(1);
     expect(selectedByName?.path).toBe(skillDir);
+    expect(prepared.activationDecision).toMatchObject({
+      selected: true,
+      skill: expect.objectContaining({ name: "代码评审" }),
+      confidence: expect.any(Number),
+      candidates: expect.any(Array),
+    });
     expect(prepared.activeSkills[0].skill.name).toBe("代码评审");
     expect(prepared.toolInstructions).toContain("readResource");
     expect(prepared.toolInstructions).toContain("runScript");

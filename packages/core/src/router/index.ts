@@ -1,8 +1,27 @@
-import type { SkillManifest, SkillSearchResult } from "../types.js";
+import type { ActivationDecision, SkillManifest, SkillSearchResult } from "../types.js";
 
 export type SkillSearchOptions = {
   topK?: number;
   minScore?: number;
+};
+
+export type SkillRouteInput = {
+  query: string;
+  skills: SkillManifest[];
+  options?: SkillSearchOptions;
+  candidates?: SkillSearchResult[];
+};
+
+export interface SkillRouter {
+  route(input: SkillRouteInput): Promise<ActivationDecision> | ActivationDecision;
+}
+
+export type EmbeddingRouterOptions = {
+  route?: (input: SkillRouteInput) => Promise<ActivationDecision> | ActivationDecision;
+};
+
+export type LlmRouterOptions = {
+  route?: (input: SkillRouteInput) => Promise<ActivationDecision> | ActivationDecision;
 };
 
 function normalizeText(value: string): string {
@@ -101,6 +120,84 @@ function scoreSkill(query: string, skill: SkillManifest): SkillSearchResult | nu
   };
 }
 
+function inferRequiredResources(skill: SkillManifest): string[] {
+  return skill.entrypoints?.default ? [skill.entrypoints.default] : [];
+}
+
+function inferRequiredTools(skill: SkillManifest): string[] {
+  return skill.allowedTools ?? [];
+}
+
+function createActivationDecision(candidates: SkillSearchResult[]): ActivationDecision {
+  const selectedCandidate = candidates[0];
+
+  if (!selectedCandidate) {
+    return {
+      selected: false,
+      candidates,
+      confidence: 0,
+      reason: "No skill candidate met the routing threshold.",
+      requiredResources: [],
+      requiredTools: [],
+    };
+  }
+
+  return {
+    selected: true,
+    skill: selectedCandidate.skill,
+    candidates,
+    confidence: selectedCandidate.score,
+    reason: selectedCandidate.reason.join("; "),
+    requiredResources: inferRequiredResources(selectedCandidate.skill),
+    requiredTools: inferRequiredTools(selectedCandidate.skill),
+  };
+}
+
+export class RuleRouter implements SkillRouter {
+  route(input: SkillRouteInput): ActivationDecision {
+    const candidates = searchSkills(input.query, input.skills, input.options);
+    return createActivationDecision(candidates);
+  }
+}
+
+export class EmbeddingRouter implements SkillRouter {
+  constructor(private readonly options: EmbeddingRouterOptions = {}) {}
+
+  async route(input: SkillRouteInput): Promise<ActivationDecision> {
+    if (!this.options.route) {
+      return {
+        selected: false,
+        candidates: input.candidates ?? [],
+        confidence: 0,
+        reason: "EmbeddingRouter is not configured.",
+        requiredResources: [],
+        requiredTools: [],
+      };
+    }
+
+    return this.options.route(input);
+  }
+}
+
+export class LlmRouter implements SkillRouter {
+  constructor(private readonly options: LlmRouterOptions = {}) {}
+
+  async route(input: SkillRouteInput): Promise<ActivationDecision> {
+    if (!this.options.route) {
+      return {
+        selected: false,
+        candidates: input.candidates ?? [],
+        confidence: 0,
+        reason: "LlmRouter is not configured.",
+        requiredResources: [],
+        requiredTools: [],
+      };
+    }
+
+    return this.options.route(input);
+  }
+}
+
 export function searchSkills(
   query: string,
   skills: SkillManifest[],
@@ -115,4 +212,13 @@ export function searchSkills(
     .filter((result) => result.score >= minScore)
     .sort((left, right) => right.score - left.score || left.skill.name.localeCompare(right.skill.name))
     .slice(0, topK);
+}
+
+export function routeSkills(
+  query: string,
+  skills: SkillManifest[],
+  options: SkillSearchOptions = {},
+  router: SkillRouter = new RuleRouter(),
+): Promise<ActivationDecision> | ActivationDecision {
+  return router.route({ query, skills, options });
 }

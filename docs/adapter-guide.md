@@ -6,7 +6,7 @@ The typical adapter flow is:
 
 1. Create a `SkillBridgeRuntime`.
 2. Call `init()` at agent startup.
-3. For each user task, call `prepare()`.
+3. For each user task, call `prepare()` or `routeSkills()`.
 4. Inject `systemPatch` into the agent context.
 5. Expose resource/script operations as native agent tools.
 6. Feed tool results back into the agent.
@@ -31,6 +31,22 @@ export async function prepareAgentInput(messages: Array<{ role: string; content:
   };
 }
 ```
+
+## Routing Decisions
+
+Adapters that need routing without context construction can call the router directly:
+
+```ts
+import { routeSkills } from "@skillbridge/core";
+
+const decision = await routeSkills(userMessage, skills);
+
+if (decision.selected && decision.skill) {
+  // Attach the skill or expose its tools in your host agent.
+}
+```
+
+Use `decision.candidates` for UI/debugging and `decision.confidence` for host-specific thresholds. More advanced adapters can replace the default `RuleRouter` with embedding or LLM rerank logic while preserving the same `ActivationDecision` shape.
 
 ## Tool Mapping
 

@@ -1,7 +1,7 @@
 import { buildSkillContext } from "../context/index.js";
 import { readSkillBody, scanSkillDirs } from "../parser/index.js";
 import { readSkillResource } from "../resources/index.js";
-import { searchSkills } from "../router/index.js";
+import { routeSkills } from "../router/index.js";
 import type {
   LocalScriptExecutorResult,
   ResourceManagerInput,
@@ -60,11 +60,12 @@ export class SkillBridgeRuntime {
 
   async prepare(input: SkillBridgePrepareInput): Promise<SkillBridgePrepareOutput> {
     this.trace("search_start", "Searching for active skills.", { userMessage: input.userMessage });
-    const activeSkills = searchSkills(input.userMessage, this.skills);
-    const selectedSkill = activeSkills[0]?.skill;
+    const activationDecision = await routeSkills(input.userMessage, this.skills);
+    const activeSkills = activationDecision.candidates;
+    const selectedSkill = activationDecision.skill;
     this.trace("skill_selected", selectedSkill ? `Selected skill: ${selectedSkill.name}` : "No skill selected.", {
       skillName: selectedSkill?.name,
-      score: activeSkills[0]?.score,
+      confidence: activationDecision.confidence,
     });
     const selectedSkillBody = selectedSkill ? await readSkillBody(selectedSkill.path) : undefined;
     const context = await buildSkillContext({
@@ -82,6 +83,7 @@ export class SkillBridgeRuntime {
     return {
       ...context,
       activeSkills,
+      activationDecision,
       toolInstructions: buildToolInstructions(selectedSkill),
     };
   }

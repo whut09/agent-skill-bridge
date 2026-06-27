@@ -114,6 +114,35 @@ Trace events include `type`, `message`, `timestamp`, and optional `metadata`.
 - `parseSkillDir(skillPath)`
 - `readSkillBody(skillPath)`
 - `searchSkills(query, skills, options)`
+- `routeSkills(query, skills, options)`
 - `buildSkillContext(input)`
 - `readSkillResource(input)`
 - `executeLocalScript(input)`
+
+## Routing API
+
+`searchSkills()` remains the simple compatibility API. It returns ranked `SkillSearchResult[]`.
+
+For SDK, MCP, and proxy integrations, prefer the router API:
+
+```ts
+import { RuleRouter, routeSkills } from "@skillbridge/core";
+
+const decision = await routeSkills("review this PR", skills);
+const ruleDecision = await new RuleRouter().route({
+  query: "review this PR",
+  skills,
+});
+```
+
+`ActivationDecision` contains:
+
+- `selected`: whether a skill should activate.
+- `skill`: selected skill when available.
+- `candidates`: ranked candidate skills.
+- `confidence`: normalized confidence from `0` to `1`.
+- `reason`: concise routing explanation.
+- `requiredResources`: resources the router expects to load.
+- `requiredTools`: tools the router expects to expose.
+
+`RuleRouter` is the default zero-dependency router. `EmbeddingRouter` and `LlmRouter` are pluggable shells for external vector recall and model reranking integrations.

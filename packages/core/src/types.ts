@@ -46,6 +46,16 @@ export type SkillSearchResult = {
   reason: string[];
 };
 
+export type ActivationDecision = {
+  selected: boolean;
+  skill?: SkillManifest;
+  candidates: SkillSearchResult[];
+  confidence: number;
+  reason: string;
+  requiredResources: string[];
+  requiredTools: string[];
+};
+
 export type ResourceFileMetadata = {
   path: string;
   size: number;
@@ -125,6 +135,7 @@ export type SkillBridgePrepareInput = {
 
 export type SkillBridgePrepareOutput = SkillContext & {
   activeSkills: SkillSearchResult[];
+  activationDecision: ActivationDecision;
   toolInstructions: string;
 };
 

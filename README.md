@@ -21,6 +21,7 @@ It does not define a new skill standard or marketplace. It bridges existing `SKI
 - Parse `SKILL.md` frontmatter and markdown body.
 - Discover nested skill packages from one or more skill roots.
 - Route user queries to relevant skills with keyword, name, description, and Chinese bigram matching.
+- Use a pluggable routing layer with `RuleRouter` today and extension points for embedding and LLM reranking.
 - Build bounded runtime context for selected skills.
 - Read skill resources safely from inside the skill directory.
 - Execute local scripts from `scripts/` only, disabled by default.
@@ -130,6 +131,22 @@ searchSkills("Zemax CAD 图纸", skills, {
 ```
 
 Ranking gives high weight to exact or contained skill names and `metadata.keywords`, medium weight to descriptions, and adds character bigram matching for Chinese queries.
+
+For reusable routing decisions, use `routeSkills()` or `RuleRouter`. They return an `ActivationDecision`:
+
+```ts
+{
+  selected: true,
+  skill,
+  candidates,
+  confidence: 0.82,
+  reason: "keywords matched: PR, risk",
+  requiredResources: [],
+  requiredTools: []
+}
+```
+
+The router surface is intentionally pluggable: `RuleRouter` is the zero-dependency default, while `EmbeddingRouter` and `LlmRouter` provide integration points for vector recall and model reranking.
 
 ## MCP Server
 
