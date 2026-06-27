@@ -1,23 +1,47 @@
 # Security Model
 
-SkillBridge is designed to keep the default path conservative.
+SkillBridge treats a skill as operational input, not passive documentation. `SKILL.md` metadata and instructions influence discovery, routing, activation, resource loading, and tool execution, so the runtime applies policy checks before sensitive actions.
+
+## Policy Pipeline
+
+```text
+Skill selected
+  -> Permission check
+  -> Trust level check
+  -> Policy approval
+  -> Sandbox execution
+  -> Trace log
+```
+
+## Policy Package
+
+Security policy lives in `packages/policy`:
+
+- `permission.ts`: read, write, network, and execute decisions.
+- `allowlist.ts`: allowed tools, scripts, and command surfaces.
+- `trust.ts`: `trusted`, `local`, `community`, and `untrusted` trust levels.
+- `scanner.ts`: prompt-injection, dangerous-command, metadata-risk, and external-download checks.
+- `audit.ts`: structured policy audit events.
+
+Core runtime uses this package before resource reads and script execution.
 
 ## Resource Boundaries
 
-Resource reads are restricted to files inside the selected skill directory.
+Resource reads are restricted to files inside the selected skill directory and can also be constrained by `permissions.read`.
 
 Blocked:
 
 ```text
 ../outside.md
 /absolute/path/outside/skill.md
+assets/secret.txt    # when permissions.read only allows references/**
 ```
 
 Allowed:
 
 ```text
 references/checklist.md
-assets/template.json
+assets/template.json # when allowed by policy
 ```
 
 ## Script Execution
@@ -42,22 +66,48 @@ OpenAI proxy:
 export SKILLBRIDGE_ENABLE_SCRIPTS=true
 ```
 
-Scripts must live under `scripts/`. Shell execution is not enabled; scripts are executed with Node using `process.execPath`.
+Before execution, runtime checks:
+
+- `allowedTools` / `deniedTools`
+- `permissions.execute`
+- minimum trust level
+- optional script allowlist
+- `scripts/` path boundary
+- `shell:false` execution through Node
+
+## Prompt And Metadata Risk
+
+Skill text can contain operational instructions that affect runtime behavior. During scan, SkillBridge checks `SKILL.md` and frontmatter for risky patterns such as:
+
+- attempts to override system or developer instructions
+- requests to reveal secrets or hidden prompts
+- destructive shell commands
+- remote download and execute patterns
+- metadata that appears to contain operational instructions
+
+Findings are recorded as `policy_scan_finding` trace events.
 
 ## Trust Model
 
-Treat third-party skills as code.
+Default local skills are treated as `local`. Policy supports:
 
-Before enabling scripts:
+- `trusted`: reviewed first-party skills.
+- `local`: local development or private repository skills.
+- `community`: third-party shared skills.
+- `untrusted`: unknown or quarantined skills.
 
-- Inspect `SKILL.md`.
-- Inspect every file under `scripts/`.
-- Prefer read-only references for untrusted skills.
-- Run untrusted skills in an OS/container sandbox.
+Script execution defaults to requiring at least `local`. Runtime callers can raise that bar with `minimumTrustForScripts`.
 
 ## Traceability
 
-Runtime trace events record scan, search, selection, context building, resource reads, and script execution outcomes.
+Runtime trace events include:
+
+- `policy_scan_finding`
+- `policy_audit`
+- `resource_read`
+- `script_run_start`
+- `script_run_complete`
+- `script_run_failed`
 
 OpenAI proxy responses include `x-skillbridge-trace-id` for request-level correlation.
 

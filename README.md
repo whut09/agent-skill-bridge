@@ -23,6 +23,7 @@ It does not define a new skill standard or marketplace. It bridges existing `SKI
 - Route user queries to relevant skills with keyword, name, description, and Chinese bigram matching.
 - Use a pluggable routing layer with `RuleRouter` today and extension points for embedding and LLM reranking.
 - Build progressive runtime context for selected skills without inlining resources.
+- Enforce policy checks for permissions, trust levels, allowlists, and audit traces.
 - Read skill resources safely from inside the skill directory.
 - Execute local scripts from `scripts/` only, disabled by default.
 - Expose tools through MCP with `skillName` based access.
@@ -38,6 +39,7 @@ packages/
   cli/           skillbridge command line tools
   mcp-server/    MCP server exposing SkillBridge tools
   openai-proxy/  OpenAI-compatible proxy with tool interception
+  policy/        Permission, trust, allowlist, scanner, and audit policy
   adapters/      Adapter stubs for agent integrations
   sandbox/       Local script execution utilities
 ```
@@ -269,6 +271,8 @@ skillbridge trace ./examples/skills
 - `search_start`
 - `skill_selected`
 - `context_built`
+- `policy_scan_finding`
+- `policy_audit`
 - `resource_read`
 - `script_run_start`
 - `script_run_complete`
@@ -279,8 +283,12 @@ Trace events include timestamps and optional metadata.
 ## Safety Defaults
 
 - Resource reads are restricted to files inside the skill directory.
+- `permissions.read` allowlists are enforced when declared.
 - Script execution is disabled by default.
 - Scripts can only run from `scripts/`.
+- `permissions.execute: false` blocks script execution.
+- Skill text is scanned for prompt injection, dangerous commands, metadata risk, and external download patterns.
+- Policy decisions are recorded as `policy_audit` trace events.
 - Shell execution is not enabled.
 - OpenAI proxy script tools require explicit enablement.
 

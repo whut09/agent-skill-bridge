@@ -37,5 +37,6 @@ export {
   type SkillSearchOptions,
 } from "./router/index.js";
 export { SkillBridgeRuntime } from "./runtime/SkillBridgeRuntime.js";
+export type { SkillBridgeRuntimePolicyOptions } from "./runtime/SkillBridgeRuntime.js";
 export { executeLocalScript } from "./runtime/localScriptExecutor.js";
 export { createRuntimeTraceEvent } from "./runtime/trace.js";

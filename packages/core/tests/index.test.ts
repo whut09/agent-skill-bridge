@@ -476,6 +476,73 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(runtime.getTrace()).toEqual([]);
   });
 
+  it("enforces runtime read permissions", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-policy-read-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await mkdir(path.join(skillDir, "assets"), { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Policy Review
+description: Review with resource policy
+permissions:
+  read:
+    - references/**
+---
+
+# Policy Review`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "guide.md"), "allowed", "utf8");
+    await writeFile(path.join(skillDir, "assets", "secret.txt"), "denied", "utf8");
+
+    const runtime = new SkillBridgeRuntime([skillRoot]);
+    await runtime.init();
+
+    await expect(
+      runtime.readResource({
+        skillPath: skillDir,
+        resourcePath: "assets/secret.txt",
+      }),
+    ).rejects.toThrow("Policy denied read_resource");
+    expect(runtime.getTrace().map((event) => event.type)).toContain("policy_audit");
+  });
+
+  it("enforces runtime execute permissions before scripts run", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-policy-execute-"));
+    const skillDir = path.join(tempRoot, "skill");
+    const scriptsDir = path.join(skillDir, "scripts");
+
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(path.join(scriptsDir, "echo.mjs"), `console.log("should not run");`, "utf8");
+
+    const runtime = new SkillBridgeRuntime([skillDir]);
+    const skill = {
+      name: "No Execute",
+      description: "Execution denied",
+      path: skillDir,
+      frontmatter: {},
+      permissions: { execute: false },
+      references: [],
+      scripts: ["scripts/echo.mjs"],
+      assets: [],
+    };
+
+    await expect(
+      runtime.runScript({
+        skill,
+        scriptPath: "scripts/echo.mjs",
+        enableScripts: true,
+      }),
+    ).rejects.toThrow("Policy denied run_script");
+    expect(runtime.getTrace().map((event) => event.type)).toEqual(
+      expect.arrayContaining(["script_run_start", "policy_audit", "script_run_failed"]),
+    );
+  });
+
   it("rejects scripts when not explicitly enabled", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-disabled-"));
     const skillDir = path.join(tempRoot, "skill");

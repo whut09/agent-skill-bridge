@@ -1,13 +1,9 @@
 {
-  "name": "@skillbridge/core",
+  "name": "@skillbridge/policy",
   "version": "0.1.0",
   "type": "module",
-  "dependencies": {
-    "@skillbridge/policy": "workspace:*",
-    "gray-matter": "^4.0.3"
-  },
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",

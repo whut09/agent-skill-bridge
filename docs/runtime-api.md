@@ -34,6 +34,7 @@ Scans skill roots and returns:
 Trace events:
 
 - `scan_start`
+- `policy_scan_finding`
 - `scan_complete`
 
 ### `prepare(input)`
@@ -89,6 +90,7 @@ Reads only files inside the skill directory.
 
 Trace event:
 
+- `policy_audit`
 - `resource_read`
 
 ### `runScript(input)`
@@ -105,6 +107,7 @@ Scripts are disabled unless `enableScripts: true` is provided and must live unde
 
 Trace events:
 
+- `policy_audit`
 - `script_run_start`
 - `script_run_complete`
 - `script_run_failed`
