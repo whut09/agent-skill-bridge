@@ -40,10 +40,13 @@ Use this skill when the user asks for review, regression risk, test coverage, or
 
 Agent Skill Bridge follows the progressive disclosure pattern:
 
-1. Scan loads frontmatter metadata from `SKILL.md`.
-2. Routing uses `name`, `description`, and `metadata.keywords`.
-3. Activation loads the full markdown body only for the selected skill.
-4. References, scripts, and assets are listed but read or executed only when requested.
+1. Level 0 loads only `name`, `description`, and `metadata.keywords` into the catalog.
+2. Routing uses that lightweight catalog.
+3. Level 1 loads only the selected `SKILL.md` body during activation.
+4. Level 2 keeps references deferred until `readResource` is called.
+5. Level 3 keeps scripts and assets deferred until a tool explicitly requests them.
+
+Write `SKILL.md` as the concise operating guide. Put long source material, policies, forms, generated examples, and binary assets in separate files so agents can request them only when needed.
 
 ## Frontmatter
 

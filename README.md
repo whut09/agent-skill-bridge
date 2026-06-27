@@ -4,7 +4,7 @@ Run Agent Skills in any existing agent without rewriting a skill runtime.
 
 Agent Skill Bridge parses `SKILL.md`, routes user tasks to skills, progressively loads instructions and resources, exposes tools through SDK/MCP/OpenAI-compatible proxy, and traces every runtime decision.
 
-Its core value is bringing the Agent Skills progressive disclosure model to any agent: skill directories contain `SKILL.md`; `name` and `description` are available for lightweight routing; the full `SKILL.md` body is loaded only when a task selects that skill; references, scripts, and assets are read or executed only when needed.
+Its core value is bringing the Agent Skills progressive disclosure model to any agent: skill directories contain `SKILL.md`; `name`, `description`, and `metadata.keywords` are available for lightweight routing; the full `SKILL.md` body is loaded only when a task selects that skill; references, scripts, and assets are read or executed only when needed.
 
 中文说明：Agent Skill Bridge 的目标很窄，也很工程化：让任意已有 Agent 不需要重写 Skill runtime，就能运行标准 Agent Skills。它负责解析 `SKILL.md`，根据用户任务路由到合适技能，按需渐进加载完整说明和资源，通过 SDK、MCP Server、OpenAI-compatible Proxy 暴露能力，并记录每一次运行时决策的 trace。
 
@@ -22,7 +22,7 @@ It does not define a new skill standard or marketplace. It bridges existing `SKI
 - Discover nested skill packages from one or more skill roots.
 - Route user queries to relevant skills with keyword, name, description, and Chinese bigram matching.
 - Use a pluggable routing layer with `RuleRouter` today and extension points for embedding and LLM reranking.
-- Build bounded runtime context for selected skills.
+- Build progressive runtime context for selected skills without inlining resources.
 - Read skill resources safely from inside the skill directory.
 - Execute local scripts from `scripts/` only, disabled by default.
 - Expose tools through MCP with `skillName` based access.
@@ -109,6 +109,17 @@ console.log(prepared.activeSkills);
 console.log(prepared.systemPatch);
 console.log(runtime.getTrace());
 ```
+
+## Progressive Runtime
+
+SkillBridge is a progressive runtime, not a prompt concatenator.
+
+- Level 0: the catalog loads only skill `name`, `description`, and `metadata.keywords` for routing.
+- Level 1: after activation, the selected `SKILL.md` body is loaded into `systemPatch`.
+- Level 2: reference files stay out of the prompt and are read only through `readResource`.
+- Level 3: scripts and assets stay deferred until an explicit tool call requests them.
+
+中文说明：SkillBridge 不会把 references、scripts、assets 一次性塞进系统提示。它先用轻量目录做路由，只在命中技能后加载该技能的 `SKILL.md` 正文；长文档、表单、检查清单、脚本和二进制资源都通过工具按需读取或执行。
 
 Useful runtime methods:
 

@@ -92,7 +92,7 @@ description: 对代码改动进行审查、指出问题并给出建议
       });
       expect(forwardedMessages[0].content).toContain("existing system");
       expect(forwardedMessages[0].content).toContain("<skillbridge_runtime>");
-      expect(forwardedMessages[0].content).toContain("# Selected Skill: 代码评审");
+      expect(forwardedMessages[0].content).toContain("# Selected Skill (Level 1): 代码评审");
       expect(forwardedMessages[0].content).toContain("</skillbridge_runtime>");
     } finally {
       proxyServer.close();
@@ -150,7 +150,7 @@ metadata:
       expect(systemMessages).toHaveLength(1);
       expect(forwardedMessages[0].role).toBe("system");
       expect(forwardedMessages[0].content).toContain("<skillbridge_runtime>");
-      expect(forwardedMessages[0].content).toContain("# Selected Skill: Code Review");
+      expect(forwardedMessages[0].content).toContain("# Selected Skill (Level 1): Code Review");
       expect(forwardedMessages[0].content).toContain("</skillbridge_runtime>");
     } finally {
       proxyServer.close();

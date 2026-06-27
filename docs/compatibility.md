@@ -35,12 +35,14 @@ metadata:
 
 ## Progressive Disclosure Compatibility
 
-SkillBridge uses:
+SkillBridge uses four progressive loading levels:
 
-- `name` and `description` for lightweight routing.
-- `metadata.keywords` for high-signal matching.
-- Full `SKILL.md` body only after selection.
-- `references/`, `scripts/`, and `assets/` only on demand.
+- Level 0: `name`, `description`, and `metadata.keywords` for lightweight routing.
+- Level 1: full selected `SKILL.md` body after activation.
+- Level 2: `references/` files only through explicit resource reads.
+- Level 3: `scripts/` and `assets/` only through explicit tool calls.
+
+This keeps SkillBridge compatible with prompt-light Skill runtimes while still exposing local files and executable helpers when an agent asks for them.
 
 ## Known Gaps
 

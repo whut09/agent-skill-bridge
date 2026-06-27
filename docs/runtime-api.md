@@ -38,7 +38,7 @@ Trace events:
 
 ### `prepare(input)`
 
-Searches active skills and builds context.
+Searches active skills and builds progressive runtime context.
 
 ```ts
 await runtime.prepare({
@@ -52,9 +52,19 @@ Returns:
 
 - `catalog`
 - `systemPatch`
+- `progressiveLoading`
 - `selectedSkill`
 - `activeSkills`
 - `toolInstructions`
+
+The context follows four loading levels:
+
+- Level 0 catalog: only `name`, `description`, and `metadata.keywords`.
+- Level 1 selected skill: only the activated `SKILL.md` body.
+- Level 2 references: deferred until `readResource()` is called.
+- Level 3 scripts/assets: deferred until a tool explicitly reads or runs them.
+
+`systemPatch` contains Levels 0 and 1 only. References, scripts, and assets remain available on `selectedSkill` and `progressiveLoading`, but their contents are not inlined into the prompt.
 
 Trace events:
 

@@ -272,15 +272,18 @@ Review tradeoffs and risks.`,
       ],
     });
 
-    expect(context).toMatchInlineSnapshot(`
-      {
-        "catalog": "# Skill Catalog\n\n- 标书撰写: 生成投标文件和标书内容",
-        "systemPatch": "# Skill Catalog\n\n- 标书撰写: 生成投标文件和标书内容",
-      }
-    `);
+    expect(context.catalog).toContain("# Skill Catalog (Level 0)");
+    expect(context.catalog).toContain("Description:");
+    expect(context.catalog).toContain("Keywords:");
+    expect(context.systemPatch).toBe(context.catalog);
+    expect(context.progressiveLoading).toMatchObject({
+      level0: { loaded: true, fields: ["name", "description", "metadata.keywords"] },
+      level2: { loaded: false, references: [] },
+      level3: { loaded: false, scripts: [], assets: [] },
+    });
   });
 
-  it("builds selected skill context and truncates references before core instructions", async () => {
+  it("builds selected skill context while deferring resources and scripts", async () => {
     const selectedSkill = {
       name: "代码评审",
       description: "对代码改动进行审查、指出问题并给出建议",
@@ -304,10 +307,21 @@ Review tradeoffs and risks.`,
     expect(context.selectedSkill?.body).toContain("# 核心指令");
     expect(context.systemPatch).toContain("# 核心指令");
     expect(context.systemPatch).toContain("- 审查代码");
+    expect(context.systemPatch).toContain("# Selected Skill (Level 1):");
+    expect(context.systemPatch).not.toContain("references/very-long-reference-a.md");
     expect(context.systemPatch).not.toContain("references/very-long-reference-b.md");
-    expect(context.systemPatch).toMatchInlineSnapshot(`
-      "# Selected Skill: 代码评审\n\n---\nname: 代码评审\ndescription: 对代码改动进行审查、指出问题并给出建议\n---\n\n# 核心指令\n\n- 审查代码\n- 关注风险\n## References\n\n- references/very-long-reference-a.md\n\n## Scripts\n- scripts/run.sh\n\n## Assets\n- assets/icon.png"
-    `);
+    expect(context.systemPatch).not.toContain("scripts/run.sh");
+    expect(context.systemPatch).not.toContain("assets/icon.png");
+    expect(context.selectedSkill).toMatchObject({
+      references: ["references/very-long-reference-a.md", "references/very-long-reference-b.md"],
+      scripts: ["scripts/run.sh"],
+      assets: ["assets/icon.png"],
+    });
+    expect(context.progressiveLoading).toMatchObject({
+      level1: { loaded: true, skillName: selectedSkill.name, source: "SKILL.md" },
+      level2: { loaded: false, references: ["references/very-long-reference-a.md", "references/very-long-reference-b.md"] },
+      level3: { loaded: false, scripts: ["scripts/run.sh"], assets: ["assets/icon.png"] },
+    });
     expect(context.systemPatch.length).toBeLessThanOrEqual(260);
   });
 
@@ -411,7 +425,7 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(prepared.activeSkills[0].skill.name).toBe("代码评审");
     expect(prepared.toolInstructions).toContain("readResource");
     expect(prepared.toolInstructions).toContain("runScript");
-    expect(prepared.systemPatch).toContain("# Selected Skill: 代码评审");
+    expect(prepared.systemPatch).toContain("# Selected Skill (Level 1): 代码评审");
     expect(prepared.systemPatch).toContain("核心工作流程");
     expect(runtime.getTrace().map((event) => event.type)).toEqual(
       expect.arrayContaining(["scan_start", "scan_complete", "search_start", "skill_selected", "context_built"]),

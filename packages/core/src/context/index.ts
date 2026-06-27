@@ -16,56 +16,58 @@ function estimateSkillBody(skill: SkillManifest, body: string | undefined): stri
   return body ?? `# ${skill.name}\n\n${skill.description}`;
 }
 
+function formatKeywords(skill: SkillManifest): string {
+  return skill.metadata?.keywords?.length ? skill.metadata.keywords.join(", ") : "None";
+}
+
 function buildCatalog(skills: SkillManifest[]): string {
   if (skills.length === 0) {
-    return "# Skill Catalog\n\nNo skills available.";
+    return "# Skill Catalog (Level 0)\n\nNo skills available.";
   }
 
-  const lines = ["# Skill Catalog", ""];
+  const lines = [
+    "# Skill Catalog (Level 0)",
+    "",
+  ];
   for (const skill of skills) {
-    lines.push(`- ${skill.name}: ${skill.description}`);
+    lines.push(`- ${skill.name}`);
+    lines.push(`  Description: ${skill.description}`);
+    lines.push(`  Keywords: ${formatKeywords(skill)}`);
   }
 
   return lines.join("\n");
 }
 
-function buildSelectedSkillBlock(skill: SkillManifest, body: string | undefined, budget: number): string {
+function buildProgressiveLoadingPlan(selectedSkill?: SkillManifest): SkillContext["progressiveLoading"] {
+  return {
+    level0: {
+      loaded: true,
+      fields: ["name", "description", "metadata.keywords"],
+    },
+    ...(selectedSkill
+      ? {
+          level1: {
+            loaded: true as const,
+            skillName: selectedSkill.name,
+            source: "SKILL.md" as const,
+          },
+        }
+      : {}),
+    level2: {
+      loaded: false,
+      references: selectedSkill?.references ?? [],
+    },
+    level3: {
+      loaded: false,
+      scripts: selectedSkill?.scripts ?? [],
+      assets: selectedSkill?.assets ?? [],
+    },
+  };
+}
+
+function buildSelectedSkillBlock(skill: SkillManifest, body: string | undefined): string {
   const coreBody = estimateSkillBody(skill, body).trim();
-  const coreSection = [`# Selected Skill: ${skill.name}`, "", coreBody, ""].join("\n");
-
-  const fixedSections = ["## References", "", "## Scripts", "", "## Assets", ""].join("\n");
-  const availableForResources = Math.max(0, budget - coreSection.length - fixedSections.length);
-  if (availableForResources <= 0) {
-    return `${coreSection}${fixedSections}`;
-  }
-
-  const referenceLines: string[] = [];
-  let remainingBudget = availableForResources;
-  for (const reference of skill.references) {
-    const line = `- ${reference}`;
-    if (line.length + 1 > remainingBudget) {
-      break;
-    }
-    referenceLines.push(line);
-    remainingBudget -= line.length + 1;
-  }
-
-  const scriptLines = skill.scripts.map((script) => `- ${script}`);
-  const assetLines = skill.assets.map((asset) => `- ${asset}`);
-
-  const resourceBlock = [
-    "## References",
-    "",
-    ...(referenceLines.length > 0 ? referenceLines : ["- None"]),
-    "",
-    "## Scripts",
-    ...(scriptLines.length > 0 ? scriptLines : ["- None"]),
-    "",
-    "## Assets",
-    ...(assetLines.length > 0 ? assetLines : ["- None"]),
-  ].join("\n");
-
-  return `${coreSection}${resourceBlock}`;
+  return [`# Selected Skill (Level 1): ${skill.name}`, "", coreBody].join("\n");
 }
 
 export async function buildSkillContext(input: SkillContextInput): Promise<SkillContext> {
@@ -76,10 +78,10 @@ export async function buildSkillContext(input: SkillContextInput): Promise<Skill
 
   if (!selectedSkill) {
     const systemPatch = truncateText(catalog, budget);
-    return { catalog, systemPatch };
+    return { catalog, systemPatch, progressiveLoading: buildProgressiveLoadingPlan() };
   }
 
-  const selectedSkillBlock = buildSelectedSkillBlock(selectedSkill, selectedBody, budget);
+  const selectedSkillBlock = buildSelectedSkillBlock(selectedSkill, selectedBody);
   const availableForCatalog = Math.max(0, budget - selectedSkillBlock.length - 1);
   const catalogSection = truncateText(catalog, availableForCatalog);
   const systemPatch = [catalogSection, "", selectedSkillBlock].join("\n").trim();
@@ -87,6 +89,7 @@ export async function buildSkillContext(input: SkillContextInput): Promise<Skill
   return {
     catalog,
     systemPatch,
+    progressiveLoading: buildProgressiveLoadingPlan(selectedSkill),
     selectedSkill: {
       name: selectedSkill.name,
       description: selectedSkill.description,

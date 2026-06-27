@@ -19,7 +19,8 @@ import { createRuntimeTraceEvent } from "./trace.js";
 function buildToolInstructions(selectedSkill?: SkillManifest): string {
   const lines = [
     "Tool usage:",
-    "- readResource({ skillPath, resourcePath }) reads only files inside a skill directory.",
+    "- SkillBridge uses progressive loading: reference files, scripts, and assets are not loaded into the prompt by default.",
+    "- readResource({ skillName, resourcePath }) reads only files inside an activated skill directory when the task needs them.",
     "- runScript({ skill, scriptPath, enableScripts: true }) executes scripts inside scripts/ only.",
     "- Scripts are disabled by default and shell execution is never enabled.",
   ];

@@ -112,6 +112,26 @@ export type SkillContextInput = {
 export type SkillContext = {
   catalog: string;
   systemPatch: string;
+  progressiveLoading: {
+    level0: {
+      loaded: true;
+      fields: string[];
+    };
+    level1?: {
+      loaded: true;
+      skillName: string;
+      source: "SKILL.md";
+    };
+    level2: {
+      loaded: false;
+      references: string[];
+    };
+    level3: {
+      loaded: false;
+      scripts: string[];
+      assets: string[];
+    };
+  };
   selectedSkill?: {
     name: string;
     description: string;
