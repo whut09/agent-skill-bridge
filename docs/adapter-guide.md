@@ -1,0 +1,59 @@
+# Adapter Guide
+
+An adapter connects SkillBridge to an agent runtime that does not speak MCP or OpenAI tools directly.
+
+The typical adapter flow is:
+
+1. Create a `SkillBridgeRuntime`.
+2. Call `init()` at agent startup.
+3. For each user task, call `prepare()`.
+4. Inject `systemPatch` into the agent context.
+5. Expose resource/script operations as native agent tools.
+6. Feed tool results back into the agent.
+7. Capture `getTrace()` for logs or debugging.
+
+## Minimal Adapter
+
+```ts
+import { SkillBridgeRuntime } from "@skillbridge/core";
+
+const runtime = new SkillBridgeRuntime(["./examples/skills"]);
+await runtime.init();
+
+export async function prepareAgentInput(messages: Array<{ role: string; content: string }>) {
+  const userMessage = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  const prepared = await runtime.prepare({ messages, userMessage });
+
+  return {
+    messages: [{ role: "system", content: prepared.systemPatch }, ...messages],
+    activeSkills: prepared.activeSkills,
+    trace: runtime.getTrace(),
+  };
+}
+```
+
+## Tool Mapping
+
+Map native agent tools to runtime calls:
+
+```ts
+async function readResource(skillName: string, resourcePath: string) {
+  const skill = runtime.getSkillByName(skillName);
+  if (!skill) throw new Error(`Skill not found: ${skillName}`);
+  return runtime.readResource({ skillPath: skill.path, resourcePath });
+}
+
+async function runScript(skillName: string, scriptPath: string, args: string[]) {
+  const skill = runtime.getSkillByName(skillName);
+  if (!skill) throw new Error(`Skill not found: ${skillName}`);
+  return runtime.runScript({ skill, scriptPath, args, enableScripts: true });
+}
+```
+
+## Adapter Checklist
+
+- Keep script execution off unless the host explicitly enables it.
+- Prefer `skillName` in public tool APIs.
+- Hide absolute paths from model-visible outputs.
+- Preserve trace events for debugging.
+- Keep model-facing resource outputs small and relevant.

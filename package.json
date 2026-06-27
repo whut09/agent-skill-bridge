@@ -16,6 +16,7 @@
     "build": "pnpm -r build",
     "check": "pnpm -r check",
     "test": "pnpm -r test",
+    "skillbridge": "node packages/cli/dist/index.js",
     "lint": "pnpm -r lint"
   }
 }
