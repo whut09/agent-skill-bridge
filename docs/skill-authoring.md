@@ -18,6 +18,15 @@ name: Code Review
 description: Review code changes for correctness, regressions, and test coverage gaps.
 metadata:
   keywords: code review, PR, risk, tests
+  domains: software engineering
+  taskTypes: review, debugging
+compatibility:
+  agents: Claude, Cursor
+  runtimes: node
+permissions:
+  read: references/**
+  network: false
+  execute: false
 ---
 
 # Code Review
@@ -44,11 +53,19 @@ Supported fields:
 - `description`: required string.
 - `version`: optional string.
 - `license`: optional string.
-- `compatibility`: optional object or scalar.
-- `allowed-tools`: optional string array.
+- `author`: optional string.
+- `compatibility`: optional object with `agents`, `runtimes`, and `models`.
+- `allowed-tools` / `allowedTools`: optional string array or comma-separated string.
+- `denied-tools` / `deniedTools`: optional string array or comma-separated string.
+- `permissions`: optional object with `read`, `write`, `network`, and `execute`.
+- `entrypoints`: optional object with `default` and `tools`.
 - `metadata.keywords`: optional string array or comma-separated string.
+- `metadata.domains`: optional string array or comma-separated string.
+- `metadata.taskTypes` / `metadata.task-types`: optional string array or comma-separated string.
 
 The parsed manifest keeps the original frontmatter in `rawFrontmatter`.
+
+SkillBridge is intentionally lenient while reading metadata and strict while running. Parser compatibility fields describe intent, but runtime execution still enforces SkillBridge's own resource and script boundaries.
 
 ## References
 

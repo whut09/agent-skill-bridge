@@ -59,11 +59,23 @@ name: Code Review
 description: Review code changes for correctness and risk
 version: 0.1.0
 license: MIT
+author: Skill Team
+compatibility:
+  agents: Claude, Cursor
+  runtimes: node
+permissions:
+  read: references/**
+  network: false
+  execute: false
 metadata:
   keywords: review, PR, risk
+  domains: software engineering
+  taskTypes: review, debugging
 allowed-tools:
   - readResource
   - runScript
+denied-tools:
+  - shell
 ---
 
 # Code Review
@@ -74,8 +86,9 @@ Core instructions for using this skill.
 Supported frontmatter fields:
 
 - `name` and `description` are required.
-- `version`, `license`, `compatibility`, and `allowed-tools` are optional.
-- `metadata.keywords` can be either a string array or a comma-separated string.
+- `version`, `license`, `author`, `compatibility`, `allowed-tools`, `denied-tools`, `permissions`, and `entrypoints` are optional.
+- `compatibility` can declare `agents`, `runtimes`, and `models`.
+- `metadata.keywords`, `metadata.domains`, and `metadata.taskTypes` can be string arrays or comma-separated strings.
 - Raw frontmatter is preserved on `manifest.rawFrontmatter`.
 
 ## SDK Usage

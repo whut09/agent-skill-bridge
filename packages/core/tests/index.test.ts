@@ -84,14 +84,33 @@ name: Architecture Review
 description: Review system architecture decisions
 version: 1.2.3
 license: MIT
+author: Skill Team
 compatibility:
+  agents: Claude, Cursor
   runtimes:
     - node
+  models:
+    - gpt-4.1
 allowed-tools:
   - readResource
   - runScript
+denied-tools: shell, writeFile
+permissions:
+  read:
+    - references/**
+  write: outputs/**
+  network: false
+  execute: true
+entrypoints:
+  default: SKILL.md
+  tools:
+    checklist: references/checklist.md
 metadata:
   keywords: architecture, design review, adr
+  domains:
+    - software architecture
+    - platform engineering
+  task-types: review, planning
 ---
 
 # Architecture Review
@@ -109,14 +128,34 @@ Review tradeoffs and risks.`,
       description: "Review system architecture decisions",
       version: "1.2.3",
       license: "MIT",
+      author: "Skill Team",
+      compatibility: {
+        agents: ["Claude", "Cursor"],
+        runtimes: ["node"],
+        models: ["gpt-4.1"],
+      },
       allowedTools: ["readResource", "runScript"],
-      metadata: { keywords: ["architecture", "design review", "adr"] },
+      deniedTools: ["shell", "writeFile"],
+      permissions: {
+        read: ["references/**"],
+        write: ["outputs/**"],
+        network: false,
+        execute: true,
+      },
+      entrypoints: {
+        default: "SKILL.md",
+        tools: { checklist: "references/checklist.md" },
+      },
+      metadata: {
+        keywords: ["architecture", "design review", "adr"],
+        domains: ["software architecture", "platform engineering"],
+        taskTypes: ["review", "planning"],
+      },
       rawFrontmatter: expect.objectContaining({
         name: "Architecture Review",
         metadata: expect.objectContaining({ keywords: "architecture, design review, adr" }),
       }),
     });
-    expect(manifest.compatibility).toEqual({ runtimes: ["node"] });
     expect(results[0]).toMatchObject({
       skill: expect.objectContaining({ name: "Architecture Review" }),
     });

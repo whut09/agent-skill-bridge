@@ -8,13 +8,31 @@ export type SkillManifest = {
   description: string;
   version?: string;
   license?: string;
-  compatibility?: unknown;
+  author?: string;
+  compatibility?: {
+    agents?: string[];
+    runtimes?: string[];
+    models?: string[];
+  };
   allowedTools?: string[];
+  deniedTools?: string[];
+  permissions?: {
+    read?: string[];
+    write?: string[];
+    network?: boolean;
+    execute?: boolean;
+  };
+  entrypoints?: {
+    default?: string;
+    tools?: Record<string, string>;
+  };
   path: string;
   frontmatter: Record<string, unknown>;
   rawFrontmatter?: Record<string, unknown>;
   metadata?: {
     keywords?: string[];
+    domains?: string[];
+    taskTypes?: string[];
   };
   resources?: SkillResource[];
   references: string[];
