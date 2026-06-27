@@ -1,6 +1,12 @@
 # agent-skill-bridge
 
-`agent-skill-bridge` is a universal Skill runtime for existing AI agents. It lets an agent use standard `SKILL.md` skill packages without rebuilding the same plumbing for parsing, routing, context loading, resource access, script execution, proxy integration, or tracing.
+Run Agent Skills in any existing agent without rewriting a skill runtime.
+
+Agent Skill Bridge parses `SKILL.md`, routes user tasks to skills, progressively loads instructions and resources, exposes tools through SDK/MCP/OpenAI-compatible proxy, and traces every runtime decision.
+
+Its core value is bringing the Agent Skills progressive disclosure model to any agent: skill directories contain `SKILL.md`; `name` and `description` are available for lightweight routing; the full `SKILL.md` body is loaded only when a task selects that skill; references, scripts, and assets are read or executed only when needed.
+
+中文说明：Agent Skill Bridge 的目标很窄，也很工程化：让任意已有 Agent 不需要重写 Skill runtime，就能运行标准 Agent Skills。它负责解析 `SKILL.md`，根据用户任务路由到合适技能，按需渐进加载完整说明和资源，通过 SDK、MCP Server、OpenAI-compatible Proxy 暴露能力，并记录每一次运行时决策的 trace。
 
 The project can be used in three ways:
 
