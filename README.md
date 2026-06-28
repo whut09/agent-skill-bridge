@@ -4,17 +4,50 @@ Run Agent Skills in any existing agent without rewriting a skill runtime.
 
 Agent Skill Bridge parses `SKILL.md`, routes user tasks to skills, progressively loads instructions and resources, exposes tools through SDK/MCP/OpenAI-compatible proxy, and traces every runtime decision.
 
+One sentence: SkillBridge is a progressive Skill runtime layer for existing agents, turning local `SKILL.md` packages into routed instructions, safe resources, optional scripts, and auditable tool calls.
+
 Its core value is bringing the Agent Skills progressive disclosure model to any agent: skill directories contain `SKILL.md`; `name`, `description`, and `metadata.keywords` are available for lightweight routing; the full `SKILL.md` body is loaded only when a task selects that skill; references, scripts, and assets are read or executed only when needed.
 
-中文说明：Agent Skill Bridge 的目标很窄，也很工程化：让任意已有 Agent 不需要重写 Skill runtime，就能运行标准 Agent Skills。它负责解析 `SKILL.md`，根据用户任务路由到合适技能，按需渐进加载完整说明和资源，通过 SDK、MCP Server、OpenAI-compatible Proxy 暴露能力，并记录每一次运行时决策的 trace。
-
-The project can be used in three ways:
-
-- As an embeddable TypeScript SDK.
-- As an MCP server for tool-based agents.
-- As an OpenAI-compatible proxy that injects Skill context and handles SkillBridge tools.
+中文说明：SkillBridge 是一个面向现有 Agent 的渐进式 Skill runtime。它不发明新标准，而是把本地 `SKILL.md` 技能包变成可路由的指令、可安全读取的资源、可选执行的脚本，以及可审计的运行轨迹。
 
 It does not define a new skill standard or marketplace. It bridges existing `SKILL.md` packages into real agent execution loops.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Agent["Existing Agent"] --> Entry["SDK / MCP / OpenAI Proxy"]
+  Entry --> Runtime["SkillBridge Runtime"]
+  Runtime --> Parser["Parser<br/>SKILL.md + metadata"]
+  Runtime --> Router["Router<br/>name + description + keywords"]
+  Runtime --> Context["Context Builder<br/>progressive loading"]
+  Runtime --> Resources["Resources<br/>references + assets"]
+  Runtime --> Scripts["Scripts<br/>disabled by default"]
+  Runtime --> Policy["Policy + Trace<br/>permissions + trust + audit"]
+  Parser --> Skills["Skill Packages<br/>SKILL.md / references / scripts / assets"]
+  Resources --> Skills
+  Scripts --> Skills
+```
+
+## 30 Second Demo
+
+```bash
+pnpm install
+pnpm build
+pnpm skillbridge scan examples/skills
+pnpm skillbridge search examples/skills "PR risk review"
+pnpm skillbridge activate examples/skills "PR risk review" --budget 4000
+```
+
+Expected result: `Code Review` is selected, the system patch includes the selected skill body, and resources/scripts remain available through runtime tools instead of being dumped into the prompt.
+
+## Choose An Integration
+
+| Integration  | Best For                                                               | What You Change                                                 | SkillBridge Handles                                                              |
+| ------------ | ---------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| SDK          | You own the agent runtime or app code                                  | Import `@skillbridge/core` and call `runtime.prepare()` / tools | Routing, progressive context, resource reads, script execution, trace            |
+| MCP Server   | Claude Desktop, Cursor, LibreChat, OpenCode-style tool hosts           | Add a local MCP server command                                  | Native tools/resources/prompts, `skillId` lookup, policy gates                   |
+| OpenAI Proxy | Existing OpenAI-compatible agents where changing `base_url` is easiest | Point `base_url` at the proxy                                   | System patch injection, OpenAI tools, optional internal tool loop, trace headers |
 
 ## Minimal Examples
 
