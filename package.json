@@ -23,7 +23,8 @@
     "test": "pnpm -r test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "ci": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build",
+    "e2e": "vitest run examples/e2e",
+    "ci": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm e2e",
     "skillbridge": "node packages/cli/dist/index.js",
     "lint": "eslint ."
   }
