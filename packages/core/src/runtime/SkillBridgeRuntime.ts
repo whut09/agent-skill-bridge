@@ -483,16 +483,33 @@ export class SkillBridgeRuntime {
       this.skills.map(async (skill) => {
         const body = await readSkillBody(skill.path);
         const frontmatterText = JSON.stringify(skill.rawFrontmatter ?? skill.frontmatter);
-        const findings = scanSkillText(`${frontmatterText}\n${body}`);
-        for (const finding of findings) {
-          this.trace("policy_scan_finding", finding.message, {
-            skillName: skill.name,
-            severity: finding.severity,
-            category: finding.category,
-            match: finding.match,
-          });
-        }
+        this.recordPolicyScanFindings(skill, scanSkillText(`${frontmatterText}\n${body}`));
+
+        await Promise.all(
+          skill.scripts.map(async (scriptPath) => {
+            const resource = await readSkillResource({ skillPath: skill.path, resourcePath: scriptPath });
+            if (resource.type === "text") {
+              this.recordPolicyScanFindings(skill, scanSkillText(resource.content), scriptPath);
+            }
+          }),
+        );
       }),
     );
+  }
+
+  private recordPolicyScanFindings(
+    skill: SkillManifest,
+    findings: ReturnType<typeof scanSkillText>,
+    resourcePath?: string,
+  ): void {
+    for (const finding of findings) {
+      this.trace("policy_scan_finding", finding.message, {
+        skillName: skill.name,
+        resourcePath,
+        severity: finding.severity,
+        category: finding.category,
+        match: finding.match,
+      });
+    }
   }
 }
