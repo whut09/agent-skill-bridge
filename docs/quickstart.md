@@ -12,7 +12,7 @@ pnpm build
 pnpm skillbridge scan examples/skills
 ```
 
-You should see the example skills, including `Bid Writing`, `Code Review`, and `Lens Drawing`.
+You should see the example skills, including `Bid Writing`, `Code Review`, `Lens Drawing`, and `DOCX Report`.
 
 ## Machine-Readable Output
 
@@ -26,7 +26,7 @@ Expected JSON includes:
 
 ```json
 {
-  "count": 3,
+  "count": 4,
   "skills": []
 }
 ```
@@ -64,6 +64,14 @@ pnpm skillbridge trace examples/skills --query "PR risk review" --json
 ```
 
 Trace output includes the selected skill, candidates, context token estimates, tool decisions, script decisions, and raw runtime events.
+
+## Evaluate Routing
+
+```bash
+pnpm skillbridge eval examples/routing-eval.jsonl --skill-dir examples/skills
+```
+
+The eval prints accuracy, false positives, false negatives, a confusion matrix, and per-case routing predictions.
 
 ## CI
 

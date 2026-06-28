@@ -112,3 +112,20 @@ Options:
 - `--explain` prints a human-readable trace explanation.
 
 The standard trace record includes `runId`, `userMessage`, `selectedSkill`, scored candidates, context token estimates, tool decisions, script decisions, and raw events.
+
+### eval
+
+```bash
+pnpm skillbridge eval examples/routing-eval.jsonl --skill-dir examples/skills
+pnpm skillbridge eval examples/routing-eval.jsonl --skill-dir examples/skills --json
+```
+
+Runs a routing evaluation JSONL file and prints `accuracy`, `false_positive`, `false_negative`, a confusion matrix, and per-case predictions. The command exits with a non-zero code when any case fails.
+
+Each JSONL line uses this shape:
+
+```json
+{ "id": "code-review-pr-risk", "query": "PR 风险检查", "expectedSkill": "code-review" }
+```
+
+Use `expectedSkill: "no-skill"` for queries that should not activate a skill.

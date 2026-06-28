@@ -11,12 +11,47 @@ import {
   type SkillManifest,
 } from "@skillbridge/core";
 import { Command } from "commander";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 type CliCommonOptions = {
   json?: boolean;
   debug?: boolean;
   budget?: number;
+};
+
+type RoutingEvalCase = {
+  id?: string;
+  query: string;
+  expectedSkill: string | null;
+};
+
+type RoutingEvalResult = {
+  id?: string;
+  query: string;
+  expectedSkill: string;
+  predictedSkill: string;
+  score: number;
+  correct: boolean;
+  reason: string[];
+};
+
+type RoutingEvalSummary = {
+  evalFile: string;
+  skillDir: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+  false_positive: {
+    count: number;
+    rate: number;
+  };
+  false_negative: {
+    count: number;
+    rate: number;
+  };
+  confusionMatrix: Record<string, Record<string, number>>;
+  results: RoutingEvalResult[];
 };
 
 function writeJson(value: unknown): void {
@@ -108,6 +143,154 @@ function formatSearchResults(query: string, results: ReturnType<typeof searchSki
   }
 
   return lines.join("\n");
+}
+
+function incrementConfusionMatrix(
+  matrix: Record<string, Record<string, number>>,
+  expectedSkill: string,
+  predictedSkill: string,
+): void {
+  matrix[expectedSkill] ??= {};
+  matrix[expectedSkill][predictedSkill] = (matrix[expectedSkill][predictedSkill] ?? 0) + 1;
+}
+
+function normalizeExpectedSkill(value: string | null | undefined): string {
+  if (!value || value === "none" || value === "null") {
+    return "no-skill";
+  }
+
+  return value;
+}
+
+function resolveExpectedSkillId(skills: SkillManifest[], expectedSkill: string): string {
+  const normalizedExpectedSkill = normalizeExpectedSkill(expectedSkill);
+  if (normalizedExpectedSkill === "no-skill") {
+    return normalizedExpectedSkill;
+  }
+
+  const matchingSkill = skills.find(
+    (skill) =>
+      skill.id === normalizedExpectedSkill ||
+      skill.name === normalizedExpectedSkill ||
+      skill.name.toLowerCase() === normalizedExpectedSkill.toLowerCase(),
+  );
+
+  return matchingSkill?.id ?? normalizedExpectedSkill;
+}
+
+async function readRoutingEvalFile(evalFile: string): Promise<RoutingEvalCase[]> {
+  const content = await readFile(evalFile, "utf8");
+  const cases: RoutingEvalCase[] = [];
+
+  for (const [index, line] of content.split(/\r?\n/u).entries()) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine.startsWith("#")) {
+      continue;
+    }
+
+    const parsed = JSON.parse(trimmedLine) as Partial<RoutingEvalCase>;
+    if (!parsed.query || !("expectedSkill" in parsed)) {
+      throw new Error(`Invalid routing eval case on line ${index + 1}: query and expectedSkill are required.`);
+    }
+
+    cases.push({
+      id: parsed.id,
+      query: parsed.query,
+      expectedSkill: parsed.expectedSkill ?? "no-skill",
+    });
+  }
+
+  return cases;
+}
+
+function evaluateRouting(
+  evalFile: string,
+  skillDir: string,
+  skills: SkillManifest[],
+  cases: RoutingEvalCase[],
+  options: { topK: number; minScore: number },
+): RoutingEvalSummary {
+  const confusionMatrix: Record<string, Record<string, number>> = {};
+  const results = cases.map((testCase) => {
+    const expectedSkill = resolveExpectedSkillId(skills, normalizeExpectedSkill(testCase.expectedSkill));
+    const matches = searchSkills(testCase.query, skills, {
+      topK: options.topK,
+      minScore: options.minScore,
+    });
+    const predicted = matches[0];
+    const predictedSkill = predicted?.skill.id ?? "no-skill";
+    const correct = predictedSkill === expectedSkill;
+
+    incrementConfusionMatrix(confusionMatrix, expectedSkill, predictedSkill);
+
+    return {
+      id: testCase.id,
+      query: testCase.query,
+      expectedSkill,
+      predictedSkill,
+      score: predicted?.score ?? 0,
+      correct,
+      reason: predicted?.reason ?? [],
+    };
+  });
+
+  const total = results.length;
+  const correct = results.filter((result) => result.correct).length;
+  const falsePositiveCount = results.filter(
+    (result) => result.expectedSkill === "no-skill" && result.predictedSkill !== "no-skill",
+  ).length;
+  const falseNegativeCount = results.filter(
+    (result) => result.expectedSkill !== "no-skill" && result.predictedSkill === "no-skill",
+  ).length;
+
+  return {
+    evalFile,
+    skillDir,
+    total,
+    correct,
+    accuracy: total === 0 ? 0 : correct / total,
+    false_positive: {
+      count: falsePositiveCount,
+      rate: total === 0 ? 0 : falsePositiveCount / total,
+    },
+    false_negative: {
+      count: falseNegativeCount,
+      rate: total === 0 ? 0 : falseNegativeCount / total,
+    },
+    confusionMatrix,
+    results,
+  };
+}
+
+function formatConfusionMatrix(matrix: Record<string, Record<string, number>>): string {
+  const lines: string[] = [];
+  for (const [expectedSkill, predictions] of Object.entries(matrix)) {
+    const predictionText = Object.entries(predictions)
+      .map(([predictedSkill, count]) => `${predictedSkill}=${count}`)
+      .join(", ");
+    lines.push(`- ${expectedSkill}: ${predictionText}`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") : "- empty";
+}
+
+function formatRoutingEval(summary: RoutingEvalSummary): string {
+  return [
+    `Routing eval: ${summary.evalFile}`,
+    `Skill dir: ${summary.skillDir}`,
+    `Accuracy: ${summary.accuracy.toFixed(2)} (${summary.correct}/${summary.total})`,
+    `False positive: ${summary.false_positive.count} (${summary.false_positive.rate.toFixed(2)})`,
+    `False negative: ${summary.false_negative.count} (${summary.false_negative.rate.toFixed(2)})`,
+    "",
+    "Confusion matrix:",
+    formatConfusionMatrix(summary.confusionMatrix),
+    "",
+    "Cases:",
+    ...summary.results.map(
+      (result) =>
+        `- ${result.correct ? "PASS" : "FAIL"} ${result.id ?? result.query}: expected=${result.expectedSkill} predicted=${result.predictedSkill} score=${result.score.toFixed(2)}`,
+    ),
+  ].join("\n");
 }
 
 function formatActivation(prepared: Awaited<ReturnType<SkillBridgeRuntime["prepare"]>>): string {
@@ -226,7 +409,7 @@ export function createCliProgram(): Command {
       const result = {
         ok: true,
         package: "agent-skill-bridge",
-        commands: ["doctor", "scan", "validate", "search", "activate", "read", "run", "trace"],
+        commands: ["doctor", "scan", "validate", "search", "activate", "read", "run", "trace", "eval"],
       };
       output(result, `agent-skill-bridge: ok\nCommands: ${result.commands.join(", ")}`, wantsJson());
     });
@@ -397,6 +580,26 @@ export function createCliProgram(): Command {
           .map((event) => `${event.timestamp} ${event.type}: ${event.message}`)
           .join("\n"),
       );
+    });
+
+  addCommonOptions(program.command("eval"))
+    .argument("<evalFile>", "JSONL routing eval file")
+    .description("Evaluate skill routing against labeled JSONL cases")
+    .requiredOption("--skill-dir <dir>", "path to a skill root directory")
+    .option("--top-k <number>", "maximum number of candidates per query", (value) => Number(value), 5)
+    .option("--min-score <number>", "minimum normalized score", (value) => Number(value), 0.15)
+    .action(async (evalFile: string, options: { skillDir: string; topK: number; minScore: number }) => {
+      const skills = await scanSkillDirs([options.skillDir]);
+      const cases = await readRoutingEvalFile(evalFile);
+      const summary = evaluateRouting(evalFile, options.skillDir, skills, cases, {
+        topK: options.topK,
+        minScore: options.minScore,
+      });
+
+      output(summary, formatRoutingEval(summary), wantsJson());
+      if (summary.correct !== summary.total) {
+        process.exitCode = 1;
+      }
     });
 
   return program;

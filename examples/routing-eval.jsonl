@@ -1,0 +1,10 @@
+{"id":"code-review-pr-risk","query":"PR 风险检查","expectedSkill":"code-review"}
+{"id":"code-review-regression","query":"review this pull request for regression risk","expectedSkill":"code-review"}
+{"id":"bid-writing-tender","query":"帮我写投标响应方案","expectedSkill":"bid-writing"}
+{"id":"bid-writing-proposal","query":"draft a tender proposal response","expectedSkill":"bid-writing"}
+{"id":"lens-drawing-zemax","query":"Zemax CAD 图纸","expectedSkill":"lens-drawing"}
+{"id":"lens-drawing-optics","query":"镜头出图和光学尺寸说明","expectedSkill":"lens-drawing"}
+{"id":"docx-report-project","query":"生成 DOCX 项目报告","expectedSkill":"docx-report"}
+{"id":"docx-report-weekly","query":"整理 Word 周报","expectedSkill":"docx-report"}
+{"id":"no-skill-dessert","query":"烘焙甜点菜单","expectedSkill":"no-skill"}
+{"id":"no-skill-travel","query":"规划周末露营路线","expectedSkill":"no-skill"}

@@ -164,6 +164,71 @@ describe("cli package", () => {
     expect(explainOutput).toContain("Context:");
   });
 
+  it("evaluates routing jsonl files", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-eval-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const evalFile = path.join(tempRoot, "routing-eval.jsonl");
+
+    await mkdir(path.join(skillRoot, "review"), { recursive: true });
+    await mkdir(path.join(skillRoot, "report"), { recursive: true });
+    await writeFile(
+      path.join(skillRoot, "review", "SKILL.md"),
+      `---
+id: code-review
+name: Code Review
+description: Review PR risk and tests.
+metadata:
+  keywords: PR, risk, review, 风险检查
+---
+
+# Code Review
+`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(skillRoot, "report", "SKILL.md"),
+      `---
+id: docx-report
+name: DOCX Report
+description: Create DOCX reports and Word summaries.
+metadata:
+  keywords: DOCX, Word, report, 项目报告
+---
+
+# DOCX Report
+`,
+      "utf8",
+    );
+    await writeFile(
+      evalFile,
+      [
+        JSON.stringify({ id: "review", query: "PR 风险检查", expectedSkill: "code-review" }),
+        JSON.stringify({ id: "report", query: "生成 DOCX 项目报告", expectedSkill: "docx-report" }),
+        JSON.stringify({ id: "none", query: "烘焙甜点菜单", expectedSkill: "no-skill" }),
+      ].join("\n"),
+      "utf8",
+    );
+
+    const prettyOutput = await runCli(["eval", evalFile, "--skill-dir", skillRoot]);
+    const jsonOutput = parseJsonOutput(await runCli(["eval", evalFile, "--skill-dir", skillRoot, "--json"])) as {
+      accuracy: number;
+      false_positive: { count: number };
+      false_negative: { count: number };
+      confusionMatrix: Record<string, Record<string, number>>;
+      results: Array<{ correct: boolean }>;
+    };
+
+    expect(prettyOutput).toContain("Accuracy: 1.00 (3/3)");
+    expect(prettyOutput).toContain("Confusion matrix:");
+    expect(jsonOutput.accuracy).toBe(1);
+    expect(jsonOutput.false_positive.count).toBe(0);
+    expect(jsonOutput.false_negative.count).toBe(0);
+    expect(jsonOutput.confusionMatrix["code-review"]["code-review"]).toBe(1);
+    expect(jsonOutput.confusionMatrix["docx-report"]["docx-report"]).toBe(1);
+    expect(jsonOutput.confusionMatrix["no-skill"]["no-skill"]).toBe(1);
+    expect(jsonOutput.results.every((result) => result.correct)).toBe(true);
+  });
+
   it("accepts debug and budget on common commands", async () => {
     const { skillRoot } = await createFixtureSkillRoot();
     const scanOutput = parseJsonOutput(await runCli(["scan", skillRoot, "--json", "--debug", "--budget", "4000"])) as {
