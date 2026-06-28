@@ -29,6 +29,65 @@ function listen(server: ReturnType<typeof createServer>): Promise<number> {
 }
 
 describe("openai proxy", () => {
+  it("serves health and forwards model listing", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-health-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedPaths: string[] = [];
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+id: code-review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+
+    const targetServer = createServer((request, response) => {
+      receivedPaths.push(request.url ?? "");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ object: "list", data: [{ id: "target-model", object: "model" }] }));
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      targetApiKey: "test-key",
+      skillDirs: [skillRoot],
+      mode: "prompt",
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const healthResponse = await fetch(`http://127.0.0.1:${proxyPort}/skillbridge/health`);
+      const healthBody = await healthResponse.json();
+      const modelsResponse = await fetch(`http://127.0.0.1:${proxyPort}/v1/models`);
+      const modelsBody = await modelsResponse.json();
+
+      expect(healthResponse.status).toBe(200);
+      expect(healthResponse.headers.get("x-skillbridge-trace-id")).toBeTruthy();
+      expect(healthBody).toMatchObject({
+        ok: true,
+        mode: "prompt",
+        skillCount: 1,
+        scriptsEnabled: false,
+      });
+      expect(modelsResponse.status).toBe(200);
+      expect(modelsResponse.headers.get("x-skillbridge-trace-id")).toBeTruthy();
+      expect(modelsBody).toMatchObject({ object: "list", data: [{ id: "target-model" }] });
+      expect(receivedPaths).toEqual(["/v1/models"]);
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
+
   it("injects systemPatch and forwards chat completions", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-"));
     const skillRoot = path.join(tempRoot, "skills");
@@ -251,6 +310,170 @@ metadata:
       const secondRequestToolMessage = receivedBodies[1].messages.find((message) => message.role === "tool");
       expect(secondRequestToolMessage).toMatchObject({ tool_call_id: "call_read_1" });
       expect(secondRequestToolMessage?.content).toContain("resource guidance");
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
+
+  it("stores traces by response trace id", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-trace-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+id: code-review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+
+    const targetServer = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ id: "chatcmpl-trace", choices: [] }));
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const chatResponse = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+      const traceId = chatResponse.headers.get("x-skillbridge-trace-id");
+      const latestResponse = await fetch(`http://127.0.0.1:${proxyPort}/skillbridge/traces/latest`);
+      const latestBody = await latestResponse.json();
+      const traceResponse = await fetch(`http://127.0.0.1:${proxyPort}/skillbridge/traces/${traceId}`);
+      const traceBody = await traceResponse.json();
+
+      expect(traceId).toBeTruthy();
+      expect(latestResponse.status).toBe(200);
+      expect(latestBody).toMatchObject({
+        traceId,
+        userMessage: "review",
+        selectedSkill: "Code Review",
+      });
+      expect(traceResponse.status).toBe(200);
+      expect(traceBody).toMatchObject({
+        traceId,
+        userMessage: "review",
+        selectedSkill: "Code Review",
+      });
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
+
+  it("returns failed tool calls as tool messages instead of proxy errors", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-tool-error-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedBodies: Array<{
+      messages: Array<{ role: string; content?: string; tool_call_id?: string }>;
+    }> = [];
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+id: code-review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+
+    const targetServer = createServer(async (request, response) => {
+      const requestBody = JSON.parse(await readBody(request));
+      receivedBodies.push(requestBody);
+      response.writeHead(200, { "content-type": "application/json" });
+
+      if (receivedBodies.length === 1) {
+        response.end(
+          JSON.stringify({
+            id: "chatcmpl-tool-error",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "call_missing_resource",
+                      type: "function",
+                      function: {
+                        name: "skillbridge_read_resource",
+                        arguments: JSON.stringify({
+                          skillId: "code-review",
+                          resourcePath: "references/missing.md",
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      response.end(
+        JSON.stringify({
+          id: "chatcmpl-final-after-error",
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+        }),
+      );
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+      const body = await response.json();
+      const secondRequestToolMessage = receivedBodies[1].messages.find((message) => message.role === "tool");
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ id: "chatcmpl-final-after-error" });
+      expect(receivedBodies).toHaveLength(2);
+      expect(secondRequestToolMessage).toMatchObject({ tool_call_id: "call_missing_resource" });
+      expect(JSON.parse(secondRequestToolMessage?.content ?? "{}")).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("ENOENT"),
+      });
+      expect(secondRequestToolMessage?.content).not.toContain(tempRoot);
     } finally {
       proxyServer.close();
       targetServer.close();

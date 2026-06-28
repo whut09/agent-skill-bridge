@@ -3,6 +3,7 @@ import {
   SkillBridgeRuntime,
   type LocalScriptExecutorResult,
   type ResourceManagerResult,
+  type RuntimeTraceRecord,
   type SkillBridgeMessage,
   type SkillManifest,
 } from "@skillbridge/core";
@@ -55,6 +56,11 @@ type OpenAIChatCompletionResponse = {
     message?: OpenAIChatMessage;
   }>;
   [key: string]: unknown;
+};
+
+type ProxyTraceRecord = RuntimeTraceRecord & {
+  traceId: string;
+  createdAt: string;
 };
 
 const skillBridgeTools: OpenAITool[] = [
@@ -246,6 +252,10 @@ function normalizeToolResult(result: ResourceManagerResult | LocalScriptExecutor
   return result;
 }
 
+function sanitizeToolErrorMessage(message: string): string {
+  return message.replace(/[A-Za-z]:\\[^'"\n\r]+/gu, "[path]").replace(/\/(?:[^/'"\n\r]+\/)+[^'"\n\r]*/gu, "[path]");
+}
+
 async function executeSkillBridgeTool(
   runtime: SkillBridgeRuntime,
   toolCall: OpenAIToolCall,
@@ -282,6 +292,25 @@ async function executeSkillBridgeTool(
   };
 }
 
+async function executeSkillBridgeToolSafely(
+  runtime: SkillBridgeRuntime,
+  toolCall: OpenAIToolCall,
+  enableScripts: boolean,
+): Promise<OpenAIChatMessage> {
+  try {
+    return await executeSkillBridgeTool(runtime, toolCall, enableScripts);
+  } catch (error) {
+    return {
+      role: "tool",
+      tool_call_id: toolCall.id,
+      content: JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? sanitizeToolErrorMessage(error.message) : "Unknown SkillBridge tool error",
+      }),
+    };
+  }
+}
+
 async function forwardResponse(
   targetResponse: Response,
   response: ServerResponse,
@@ -309,6 +338,8 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
   const maxToolIterations = options.maxToolIterations ?? 3;
   const enableScripts = options.enableScripts ?? process.env.SKILLBRIDGE_ENABLE_SCRIPTS === "true";
   const runtime = new SkillBridgeRuntime(skillDirs);
+  const traces = new Map<string, ProxyTraceRecord>();
+  let latestTraceId: string | undefined;
 
   let initPromise: Promise<unknown> | undefined;
   const initRuntime = () => {
@@ -316,12 +347,84 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
     return initPromise;
   };
 
+  const saveTrace = (traceId: string) => {
+    const traceRecord = runtime.getTraceRecord();
+    const proxyTraceRecord = {
+      ...traceRecord,
+      traceId,
+      createdAt: new Date().toISOString(),
+    };
+    traces.set(traceId, proxyTraceRecord);
+    latestTraceId = traceId;
+    return proxyTraceRecord;
+  };
+
+  const forwardTargetGet = async (targetPath: string, response: ServerResponse, headers: Record<string, string>) => {
+    if (!targetBaseUrl) {
+      writeJson(response, 500, { error: "SKILLBRIDGE_TARGET_BASE_URL is required" }, headers);
+      return;
+    }
+
+    const targetUrl = new URL(targetPath, targetBaseUrl).toString();
+    const targetResponse = await fetchImpl(targetUrl, {
+      method: "GET",
+      headers: {
+        ...(targetApiKey ? { authorization: `Bearer ${targetApiKey}` } : {}),
+      },
+    });
+    await forwardResponse(targetResponse, response, headers);
+  };
+
   return createServer(async (request, response) => {
     const traceId = randomUUID();
     const traceHeaders = { "x-skillbridge-trace-id": traceId };
+    const requestUrl = new URL(request.url ?? "/", "http://localhost");
 
     try {
-      if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+      if (request.method === "GET" && requestUrl.pathname === "/skillbridge/health") {
+        await initRuntime();
+        writeJson(
+          response,
+          200,
+          {
+            ok: true,
+            mode,
+            skillCount: runtime.listSkills().length,
+            scriptsEnabled: enableScripts,
+          },
+          traceHeaders,
+        );
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/v1/models") {
+        await forwardTargetGet("/v1/models", response, traceHeaders);
+        return;
+      }
+
+      if (request.method === "GET" && requestUrl.pathname === "/skillbridge/traces/latest") {
+        if (!latestTraceId) {
+          writeJson(response, 404, { error: "No SkillBridge traces recorded yet." }, traceHeaders);
+          return;
+        }
+
+        writeJson(response, 200, traces.get(latestTraceId), traceHeaders);
+        return;
+      }
+
+      const traceMatch = requestUrl.pathname.match(/^\/skillbridge\/traces\/([^/]+)$/u);
+      if (request.method === "GET" && traceMatch) {
+        const trace = traces.get(decodeURIComponent(traceMatch[1]));
+        if (!trace) {
+          writeJson(response, 404, { error: `SkillBridge trace not found: ${traceMatch[1]}` }, traceHeaders);
+          return;
+        }
+
+        writeJson(response, 200, trace, traceHeaders);
+        return;
+      }
+
+      if (request.method !== "POST" || requestUrl.pathname !== "/v1/chat/completions") {
         writeJson(response, 404, { error: "Not found" }, traceHeaders);
         return;
       }
@@ -338,6 +441,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
 
       await initRuntime();
       const prepared = await runtime.prepare({ messages, userMessage });
+      saveTrace(traceId);
       const proxiedPayload = {
         ...payload,
         messages: injectSystemPatch(messages, prepared.systemPatch),
@@ -356,6 +460,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
 
       let targetResponse = await sendTargetRequest(proxiedPayload);
       if (payload.stream || !shouldExecuteToolLoop(mode)) {
+        saveTrace(traceId);
         await forwardResponse(targetResponse, response, traceHeaders);
         return;
       }
@@ -366,25 +471,30 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
         const toolCalls = getToolCalls(responseBody);
 
         if (toolCalls.length === 0) {
+          saveTrace(traceId);
           writeJson(response, targetResponse.status, responseBody, traceHeaders);
           return;
         }
 
         const assistantMessage = responseBody.choices?.[0]?.message;
         if (!assistantMessage) {
+          saveTrace(traceId);
           writeJson(response, targetResponse.status, responseBody, traceHeaders);
           return;
         }
 
         const toolMessages = await Promise.all(
-          toolCalls.map((toolCall) => executeSkillBridgeTool(runtime, toolCall, enableScripts)),
+          toolCalls.map((toolCall) => executeSkillBridgeToolSafely(runtime, toolCall, enableScripts)),
         );
+        saveTrace(traceId);
         proxiedPayload.messages = [...(proxiedPayload.messages ?? []), assistantMessage, ...toolMessages];
         targetResponse = await sendTargetRequest(proxiedPayload);
       }
 
+      saveTrace(traceId);
       await forwardResponse(targetResponse, response, traceHeaders);
     } catch (error) {
+      saveTrace(traceId);
       writeJson(response, 500, { error: error instanceof Error ? error.message : "Unknown proxy error" }, traceHeaders);
     }
   });
