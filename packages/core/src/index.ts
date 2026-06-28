@@ -27,6 +27,13 @@ export type {
 
 export { buildSkillContext } from "./context/index.js";
 export { createSkillPackage } from "./package.js";
+export {
+  createRuntimePolicyFromConfig,
+  loadSkillBridgePolicy,
+  normalizeSkillBridgePolicyConfig,
+  type LoadedSkillBridgePolicyConfig,
+  type SkillBridgePolicyConfig,
+} from "./policyConfig.js";
 export { parseSkillDir, readSkillBody, scanSkillDirs } from "./parser/index.js";
 export { readSkillResource } from "./resources/index.js";
 export {

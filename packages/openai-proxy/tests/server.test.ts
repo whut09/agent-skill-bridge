@@ -480,6 +480,107 @@ metadata:
     }
   });
 
+  it("loads .skillbridge policy.yaml for tool execution defaults", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-policy-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const receivedBodies: Array<{
+      messages: Array<{ role: string; content?: string; tool_call_id?: string }>;
+    }> = [];
+
+    await mkdir(path.join(tempRoot, ".skillbridge"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await writeFile(
+      path.join(tempRoot, ".skillbridge", "policy.yaml"),
+      ["scripts:", "  enabled: true", "  timeoutMs: 5000", "trust:", "  minimumTrustForScripts: untrusted"].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: Code Review
+id: code-review
+description: Review code changes
+trust: untrusted
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("proxy policy script ok");`, "utf8");
+
+    const targetServer = createServer(async (request, response) => {
+      const requestBody = JSON.parse(await readBody(request));
+      receivedBodies.push(requestBody);
+      response.writeHead(200, { "content-type": "application/json" });
+
+      if (receivedBodies.length === 1) {
+        response.end(
+          JSON.stringify({
+            id: "chatcmpl-policy-tool",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "call_script_policy",
+                      type: "function",
+                      function: {
+                        name: "skillbridge_run_script",
+                        arguments: JSON.stringify({
+                          skillId: "code-review",
+                          scriptPath: "scripts/echo.mjs",
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      response.end(
+        JSON.stringify({ id: "chatcmpl-final-policy", choices: [{ message: { role: "assistant", content: "ok" } }] }),
+      );
+    });
+    const targetPort = await listen(targetServer);
+    const proxyServer = createOpenAIProxyServer({
+      targetBaseUrl: `http://127.0.0.1:${targetPort}`,
+      skillDirs: [skillRoot],
+    });
+    const proxyPort = await listen(proxyServer);
+
+    try {
+      const healthResponse = await fetch(`http://127.0.0.1:${proxyPort}/skillbridge/health`);
+      const healthBody = await healthResponse.json();
+      const response = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "test-model",
+          messages: [{ role: "user", content: "review" }],
+        }),
+      });
+      const body = await response.json();
+      const secondRequestToolMessage = receivedBodies[1].messages.find((message) => message.role === "tool");
+
+      expect(healthBody.scriptsEnabled).toBe(true);
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ id: "chatcmpl-final-policy" });
+      expect(secondRequestToolMessage?.content).toContain("proxy policy script ok");
+    } finally {
+      proxyServer.close();
+      targetServer.close();
+    }
+  });
+
   it("prompt mode injects context without exposing SkillBridge tools", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-proxy-prompt-mode-"));
     const skillRoot = path.join(tempRoot, "skills");

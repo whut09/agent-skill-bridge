@@ -1,6 +1,12 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import os from "node:os";
 import { describe, expect, it } from "vitest";
 import path from "node:path";
-import { createMcpServer, parseCliArgs } from "../src/server.js";
+import { createMcpServer, createMcpServerWithLoadedPolicy, parseCliArgs } from "../src/server.js";
+
+type RegisteredTool = {
+  handler(input: Record<string, unknown>): Promise<{ content: Array<{ type: string; text: string }> }>;
+};
 
 describe("mcp server", () => {
   it("creates a stdio MCP server wrapper", () => {
@@ -84,5 +90,44 @@ describe("mcp server", () => {
       enableScripts: false,
       debug: true,
     });
+  });
+
+  it("loads .skillbridge policy.yaml for script execution", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-mcp-policy-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+
+    await mkdir(path.join(tempRoot, ".skillbridge"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await writeFile(
+      path.join(tempRoot, ".skillbridge", "policy.yaml"),
+      ["scripts:", "  enabled: true", "  timeoutMs: 5000", "trust:", "  minimumTrustForScripts: untrusted"].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+id: review
+name: Review
+description: Review code changes
+trust: untrusted
+---
+
+# Review`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("mcp policy script ok");`, "utf8");
+
+    const { server, runtime } = await createMcpServerWithLoadedPolicy({ skillDirs: [skillRoot] });
+    await runtime.init();
+    const internals = server as unknown as {
+      _registeredTools: Record<string, RegisteredTool>;
+    };
+    const script = await internals._registeredTools["skillbridge.run_script"].handler({
+      skillId: "review",
+      scriptPath: "scripts/echo.mjs",
+    });
+
+    expect(script.content[0].text).toContain("mcp policy script ok");
   });
 });

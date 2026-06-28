@@ -1,10 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   SkillBridgeRuntime,
+  createRuntimePolicyFromConfig,
+  loadSkillBridgePolicy,
   type LocalScriptExecutorResult,
   type ResourceManagerResult,
   type RuntimeTraceRecord,
   type SkillBridgeMessage,
+  type SkillBridgePolicyConfig,
+  type SkillBridgeRuntimePolicyOptions,
   type SkillManifest,
 } from "@skillbridge/core";
 import { randomUUID } from "node:crypto";
@@ -17,6 +21,7 @@ export type OpenAIProxyOptions = {
   mode?: OpenAIProxyMode;
   maxToolIterations?: number;
   enableScripts?: boolean;
+  policy?: SkillBridgePolicyConfig;
 };
 
 export type OpenAIProxyMode = "prompt" | "tools" | "loop";
@@ -336,16 +341,28 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const mode = options.mode ?? readProxyMode(process.env.SKILLBRIDGE_PROXY_MODE);
   const maxToolIterations = options.maxToolIterations ?? 3;
-  const enableScripts = options.enableScripts ?? process.env.SKILLBRIDGE_ENABLE_SCRIPTS === "true";
-  const runtime = new SkillBridgeRuntime(skillDirs);
+  const configuredEnableScripts = options.enableScripts ?? process.env.SKILLBRIDGE_ENABLE_SCRIPTS === "true";
+  let policyConfig = options.policy ?? {};
+  const runtimePolicy: SkillBridgeRuntimePolicyOptions = createRuntimePolicyFromConfig(policyConfig);
+  const runtime = new SkillBridgeRuntime(skillDirs, runtimePolicy);
   const traces = new Map<string, ProxyTraceRecord>();
   let latestTraceId: string | undefined;
 
   let initPromise: Promise<unknown> | undefined;
   const initRuntime = () => {
-    initPromise ??= runtime.init();
+    initPromise ??= (async () => {
+      if (!options.policy) {
+        const loadedPolicy = await loadSkillBridgePolicy([...skillDirs, process.cwd()]);
+        policyConfig = loadedPolicy.config;
+        Object.assign(runtimePolicy, createRuntimePolicyFromConfig(policyConfig));
+      }
+
+      return runtime.init();
+    })();
     return initPromise;
   };
+
+  const scriptsEnabled = () => configuredEnableScripts || policyConfig.scripts?.enabled === true;
 
   const saveTrace = (traceId: string) => {
     const traceRecord = runtime.getTraceRecord();
@@ -390,7 +407,8 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
             ok: true,
             mode,
             skillCount: runtime.listSkills().length,
-            scriptsEnabled: enableScripts,
+            scriptsEnabled: scriptsEnabled(),
+            networkEnabled: policyConfig.network?.enabled ?? false,
           },
           traceHeaders,
         );
@@ -484,7 +502,7 @@ export function createOpenAIProxyServer(options: OpenAIProxyOptions = {}) {
         }
 
         const toolMessages = await Promise.all(
-          toolCalls.map((toolCall) => executeSkillBridgeToolSafely(runtime, toolCall, enableScripts)),
+          toolCalls.map((toolCall) => executeSkillBridgeToolSafely(runtime, toolCall, scriptsEnabled())),
         );
         saveTrace(traceId);
         proxiedPayload.messages = [...(proxiedPayload.messages ?? []), assistantMessage, ...toolMessages];

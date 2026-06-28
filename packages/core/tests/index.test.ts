@@ -4,10 +4,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildSkillContext,
+  createRuntimePolicyFromConfig,
   executeLocalScript,
   createRuntimeTraceEvent,
   createSkillPackage,
   LlmRerankRouter,
+  loadSkillBridgePolicy,
   PolicyFilter,
   SkillBridgeRuntime,
   RuleRouter,
@@ -780,5 +782,64 @@ permissions:
     expect(runtime.getTrace().map((event) => event.type)).toEqual(
       expect.arrayContaining(["script_run_start", "script_run_failed"]),
     );
+  });
+
+  it("loads .skillbridge policy.yaml and applies resource and script defaults", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-policy-config-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "review");
+    const policyDir = path.join(tempRoot, ".skillbridge");
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await mkdir(policyDir, { recursive: true });
+    await writeFile(
+      path.join(policyDir, "policy.yaml"),
+      [
+        "scripts:",
+        "  enabled: true",
+        "  timeoutMs: 5000",
+        "trust:",
+        "  minimumTrustForScripts: untrusted",
+        "resources:",
+        "  maxFileBytes: 4",
+        "network:",
+        "  enabled: false",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+id: review
+name: Review
+description: Review with policy defaults
+trust: untrusted
+---
+
+# Review`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "small.txt"), "ok", "utf8");
+    await writeFile(path.join(skillDir, "references", "large.txt"), "too large", "utf8");
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("policy script ok");`, "utf8");
+
+    const loadedPolicy = await loadSkillBridgePolicy([skillRoot]);
+    const runtime = new SkillBridgeRuntime([skillRoot], createRuntimePolicyFromConfig(loadedPolicy.config));
+    await runtime.init();
+
+    const smallResource = await runtime.readResource("review", "references/small.txt");
+    const scriptResult = await runtime.runScript("review", "scripts/echo.mjs");
+
+    expect(loadedPolicy.path).toBe(path.join(policyDir, "policy.yaml"));
+    expect(loadedPolicy.config).toMatchObject({
+      scripts: { enabled: true, timeoutMs: 5000 },
+      trust: { minimumTrustForScripts: "untrusted" },
+      resources: { maxFileBytes: 4 },
+      network: { enabled: false },
+    });
+    expect(smallResource).toMatchObject({ type: "text", content: "ok" });
+    await expect(runtime.readResource("review", "references/large.txt")).rejects.toThrow(/maxFileBytes/);
+    expect(scriptResult.stdout).toContain("policy script ok");
   });
 });

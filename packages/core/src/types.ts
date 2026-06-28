@@ -123,6 +123,7 @@ export type ResourceManagerResult = ResourceManagerTextResult | ResourceManagerB
 export type ResourceManagerInput = {
   skillPath: string;
   resourcePath: string;
+  maxFileBytes?: number;
 };
 
 export type LocalScriptExecutorInput = {

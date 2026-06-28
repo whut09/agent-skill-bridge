@@ -25,6 +25,32 @@ Security policy lives in `packages/policy`:
 
 Core runtime uses this package before resource reads and script execution.
 
+## Policy File
+
+CLI, MCP Server, and OpenAI Proxy look for `.skillbridge/policy.yaml` from the skill directory upward, then from the current working directory upward.
+
+Supported fields:
+
+```yaml
+scripts:
+  enabled: false
+  timeoutMs: 30000
+trust:
+  minimumTrustForScripts: local
+resources:
+  maxFileBytes: 1048576
+network:
+  enabled: false
+```
+
+Effects:
+
+- `scripts.enabled` enables script execution by default for entrypoints that read policy.
+- `scripts.timeoutMs` sets the default script timeout when a command/tool does not pass one.
+- `trust.minimumTrustForScripts` sets the minimum trust level required before script execution.
+- `resources.maxFileBytes` rejects resource reads above the configured size.
+- `network.enabled` is parsed and surfaced for policy-aware entrypoints; network execution remains disabled unless an adapter explicitly supports it.
+
 ## Resource Boundaries
 
 Resource reads are restricted to files inside the selected skill directory and can also be constrained by `permissions.read`.

@@ -2,6 +2,8 @@
 
 import {
   SkillBridgeRuntime,
+  createRuntimePolicyFromConfig,
+  loadSkillBridgePolicy,
   parseSkillDir,
   readSkillResource,
   scanSkillDirs,
@@ -336,7 +338,8 @@ function addCommonOptions(command: Command, includeBudget = false): Command {
 }
 
 async function resolveSkillByName(skillRoot: string, skillName: string): Promise<SkillManifest> {
-  const runtime = new SkillBridgeRuntime([skillRoot]);
+  const { config } = await loadSkillBridgePolicy([skillRoot, process.cwd()]);
+  const runtime = new SkillBridgeRuntime([skillRoot], createRuntimePolicyFromConfig(config));
   await runtime.init();
   const skill = runtime.getSkillByName(skillName);
   if (!skill) {
@@ -344,6 +347,11 @@ async function resolveSkillByName(skillRoot: string, skillName: string): Promise
   }
 
   return skill;
+}
+
+async function createRuntime(skillDirs: string[]): Promise<SkillBridgeRuntime> {
+  const { config } = await loadSkillBridgePolicy([...skillDirs, process.cwd()]);
+  return new SkillBridgeRuntime(skillDirs, createRuntimePolicyFromConfig(config));
 }
 
 function explainTrace(record: RuntimeTraceRecord): string {
@@ -479,7 +487,7 @@ export function createCliProgram(): Command {
     .argument("<query>", "user task query")
     .description("Select a skill and print the runtime context")
     .action(async (skillRoot: string, query: string, options: { budget?: number }) => {
-      const runtime = new SkillBridgeRuntime([skillRoot]);
+      const runtime = await createRuntime([skillRoot]);
       await runtime.init();
       const prepared = await runtime.prepare({
         messages: [{ role: "user", content: query }],
@@ -495,11 +503,16 @@ export function createCliProgram(): Command {
     .argument("[resourcePath]", "resource path inside the skill directory")
     .description("Read a resource from a named skill or skill directory")
     .action(async (skillRootOrPath: string, skillNameOrResourcePath: string, resourcePath?: string) => {
+      const { config } = await loadSkillBridgePolicy([skillRootOrPath, process.cwd()]);
       const skillPath = resourcePath
         ? (await resolveSkillByName(skillRootOrPath, skillNameOrResourcePath)).path
         : skillRootOrPath;
       const resolvedResourcePath = resourcePath ?? skillNameOrResourcePath;
-      const result = await readSkillResource({ skillPath, resourcePath: resolvedResourcePath });
+      const result = await readSkillResource({
+        skillPath,
+        resourcePath: resolvedResourcePath,
+        maxFileBytes: config.resources?.maxFileBytes,
+      });
       output(serializeResource(result, wantsDebug()), formatResource(result, wantsDebug()), wantsJson());
     });
 
@@ -522,11 +535,11 @@ export function createCliProgram(): Command {
           ? await resolveSkillByName(skillRootOrPath, skillNameOrScriptPath)
           : await parseSkillDir(skillRootOrPath);
         const resolvedScriptPath = scriptPath ?? skillNameOrScriptPath;
-        const runtime = new SkillBridgeRuntime([skill.path]);
+        const runtime = await createRuntime([skill.path]);
         const result = await runtime.runScript({
           skill,
           scriptPath: resolvedScriptPath,
-          enableScripts: options.enableScripts,
+          enableScripts: options.enableScripts || undefined,
           timeoutMs: options.timeoutMs,
           args: options.arg,
         });
@@ -555,7 +568,7 @@ export function createCliProgram(): Command {
     .option("--last", "print the last standard trace record", false)
     .option("--explain", "print a human-readable trace explanation", false)
     .action(async (skillRoot: string, options: { query?: string; last: boolean; explain: boolean }) => {
-      const runtime = new SkillBridgeRuntime([skillRoot]);
+      const runtime = await createRuntime([skillRoot]);
       await runtime.init();
       if (options.query) {
         await runtime.prepare({

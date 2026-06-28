@@ -1,7 +1,12 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { SkillBridgeRuntime } from "@skillbridge/core";
+import {
+  SkillBridgeRuntime,
+  createRuntimePolicyFromConfig,
+  loadSkillBridgePolicy,
+  type SkillBridgePolicyConfig,
+} from "@skillbridge/core";
 import path from "node:path";
 import type { ResourceManagerResult } from "@skillbridge/core";
 
@@ -9,10 +14,11 @@ export type SkillBridgeMcpServerOptions = {
   skillDirs: string[];
   enableScripts?: boolean;
   debug?: boolean;
+  policy?: SkillBridgePolicyConfig;
 };
 
 export function createMcpServer(options: SkillBridgeMcpServerOptions) {
-  const runtime = new SkillBridgeRuntime(options.skillDirs);
+  const runtime = new SkillBridgeRuntime(options.skillDirs, createRuntimePolicyFromConfig(options.policy ?? {}));
   const server = new McpServer({
     name: "agent-skill-bridge",
     version: "0.1.0",
@@ -24,6 +30,11 @@ export function createMcpServer(options: SkillBridgeMcpServerOptions) {
   registerLegacyTools(server, runtime, options);
 
   return { server, runtime };
+}
+
+export async function createMcpServerWithLoadedPolicy(options: SkillBridgeMcpServerOptions) {
+  const { config } = await loadSkillBridgePolicy([...options.skillDirs, process.cwd()]);
+  return createMcpServer({ ...options, policy: options.policy ?? config });
 }
 
 function registerNativeTools(
@@ -453,7 +464,8 @@ async function runScriptTool(
     args?: string[];
   },
 ) {
-  if (options.enableScripts !== true || input.enableScripts !== true) {
+  const scriptsEnabled = options.enableScripts === true || options.policy?.scripts?.enabled === true;
+  if (!scriptsEnabled && input.enableScripts !== true) {
     throw new Error("run_script is disabled by default. Pass enableScripts=true to allow execution.");
   }
 
@@ -461,7 +473,7 @@ async function runScriptTool(
   return runtime.runScript({
     skill,
     scriptPath: input.scriptPath,
-    enableScripts: true,
+    enableScripts: input.enableScripts ?? options.policy?.scripts?.enabled ?? options.enableScripts,
     timeoutMs: input.timeoutMs,
     args: input.args ?? [],
   });
@@ -571,7 +583,7 @@ function toSafeDisplayPath(candidatePath: string): string {
 }
 
 export async function runMcpServer(options: SkillBridgeMcpServerOptions): Promise<void> {
-  const { server } = createMcpServer(options);
+  const { server } = await createMcpServerWithLoadedPolicy(options);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

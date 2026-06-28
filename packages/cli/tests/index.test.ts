@@ -138,6 +138,49 @@ describe("cli package", () => {
     expect(runOutput.exitCode).toBe(0);
   });
 
+  it("applies .skillbridge policy.yaml to read and run commands", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-cli-policy-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "code-review");
+
+    await mkdir(path.join(tempRoot, ".skillbridge"), { recursive: true });
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await writeFile(
+      path.join(tempRoot, ".skillbridge", "policy.yaml"),
+      ["scripts:", "  enabled: true", "  timeoutMs: 5000", "resources:", "  maxFileBytes: 4"].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+id: code-review
+name: Code Review
+description: Review code changes
+metadata:
+  keywords: review
+---
+
+# Code Review`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "large.txt"), "too large", "utf8");
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("policy script ok");`, "utf8");
+
+    const runOutput = parseJsonOutput(
+      await runCli(["run", skillRoot, "Code Review", "scripts/echo.mjs", "--json"]),
+    ) as {
+      stdout: string;
+      exitCode: number;
+    };
+
+    await expect(runCli(["read", skillRoot, "Code Review", "references/large.txt", "--json"])).rejects.toThrow(
+      /maxFileBytes/,
+    );
+    expect(runOutput.stdout).toContain("policy script ok");
+    expect(runOutput.exitCode).toBe(0);
+  });
+
   it("prints runtime trace events", async () => {
     const { skillRoot } = await createFixtureSkillRoot();
     const output = await runCli(["trace", skillRoot]);

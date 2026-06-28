@@ -77,6 +77,9 @@ export async function readSkillResource(input: ResourceManagerInput): Promise<Re
   if (!stat.isFile()) {
     throw new Error(`Resource is not a file: ${input.resourcePath}`);
   }
+  if (input.maxFileBytes !== undefined && stat.size > input.maxFileBytes) {
+    throw new Error(`Resource exceeds configured maxFileBytes: ${input.resourcePath}`);
+  }
 
   const metadata = createResourceMetadata(resourceAbsolutePath, stat);
   if (metadata.isText) {

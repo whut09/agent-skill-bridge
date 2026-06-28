@@ -40,6 +40,16 @@ import { createRuntimeTraceEvent } from "./trace.js";
 export type SkillBridgeRuntimePolicyOptions = {
   allowlist?: AllowlistPolicy;
   minimumTrustForScripts?: TrustLevel;
+  resources?: {
+    maxFileBytes?: number;
+  };
+  scripts?: {
+    enabled?: boolean;
+    timeoutMs?: number;
+  };
+  network?: {
+    enabled?: boolean;
+  };
 };
 
 function estimateTokens(value: string | undefined): number {
@@ -291,7 +301,10 @@ export class SkillBridgeRuntime {
       });
     }
 
-    const result = await readSkillResource(input);
+    const result = await readSkillResource({
+      ...input,
+      maxFileBytes: input.maxFileBytes ?? this.policy.resources?.maxFileBytes,
+    });
     this.trace("resource_read", "Skill resource read.", {
       skillPath: input.skillPath,
       resourcePath: input.resourcePath,
@@ -349,8 +362,8 @@ export class SkillBridgeRuntime {
       const result = await executeLocalScript({
         skillPath: input.skill.path,
         scriptPath: input.scriptPath,
-        enableScripts: input.enableScripts,
-        timeoutMs: input.timeoutMs,
+        enableScripts: input.enableScripts ?? this.policy.scripts?.enabled,
+        timeoutMs: input.timeoutMs ?? this.policy.scripts?.timeoutMs,
         args: input.args,
       });
       this.trace("script_run_complete", "Skill script execution complete.", {

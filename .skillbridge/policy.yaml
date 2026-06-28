@@ -1,0 +1,9 @@
+scripts:
+  enabled: false
+  timeoutMs: 30000
+trust:
+  minimumTrustForScripts: local
+resources:
+  maxFileBytes: 1048576
+network:
+  enabled: false

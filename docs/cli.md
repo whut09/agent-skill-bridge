@@ -21,6 +21,8 @@ Common options accepted by every command:
 - `--debug`
 - `--budget <number>`
 
+The CLI also reads `.skillbridge/policy.yaml` from the skill directory or current working tree. Policy can set script defaults, resource size limits, minimum script trust, and network posture.
+
 ## Commands
 
 ### doctor
