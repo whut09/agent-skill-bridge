@@ -9,3 +9,9 @@ metadata:
 # Bid Writing
 
 Draft structured bid responses with consistent tone and compliance checks.
+
+## Core Workflow
+
+1. Start from `references/bid-template.md`.
+2. Score the draft against `references/scoring-rules.md`.
+3. Keep buyer requirements, evidence, risks, and assumptions traceable.
