@@ -362,6 +362,8 @@ pnpm skillbridge exec F:\codex\code\paper_agent\paper_agent\skills "总结这篇
 pnpm skillbridge exec F:\codex\code\paper_agent\paper_agent\skills "翻译这篇论文" --enable-scripts --timeout-ms 1200000 --arg=--mode --arg=translate --arg=--input --arg=F:\path\paper.pdf --arg=--output --arg=F:\path\out --arg=--config --arg=F:\codex\code\paper_agent\config.local.json --arg=--service --arg=openai
 ```
 
+完整安装、配置、扫描、执行和 PaperAgent 内部 prompt 读取流程见 [PaperAgent SkillBridge Case](docs/paperagent-case.md)。
+
 ## Trace Events
 
 `SkillBridgeRuntime` records:

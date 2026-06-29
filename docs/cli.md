@@ -117,6 +117,8 @@ PaperAgent example:
 pnpm skillbridge exec F:\codex\code\paper_agent\paper_agent\skills "总结这篇论文" --enable-scripts --timeout-ms 1200000 --arg=--mode --arg=summarize --arg=--input --arg=F:\path\paper.pdf --arg=--output --arg=F:\path\out --arg=--config --arg=F:\codex\code\paper_agent\config.local.json
 ```
 
+See [PaperAgent SkillBridge Case](paperagent-case.md) for the full install and execution workflow.
+
 ### trace
 
 ```bash
