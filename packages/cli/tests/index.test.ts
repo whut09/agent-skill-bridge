@@ -138,6 +138,23 @@ describe("cli package", () => {
     expect(runOutput.exitCode).toBe(0);
   });
 
+  it("routes a query and executes the selected default entrypoint", async () => {
+    const { skillRoot } = await createFixtureSkillRoot();
+    const prettyOutput = await runCli(["exec", skillRoot, "PR risk", "--enable-scripts"]);
+    const jsonOutput = parseJsonOutput(await runCli(["exec", skillRoot, "PR risk", "--enable-scripts", "--json"])) as {
+      selectedSkill: { name: string };
+      scriptPath: string;
+      result: { stdout: string; exitCode: number };
+    };
+
+    expect(prettyOutput).toContain("Selected skill: Code Review");
+    expect(prettyOutput).toContain("script ok");
+    expect(jsonOutput.selectedSkill.name).toBe("Code Review");
+    expect(jsonOutput.scriptPath).toBe("scripts/echo.mjs");
+    expect(jsonOutput.result.stdout).toContain("script ok");
+    expect(jsonOutput.result.exitCode).toBe(0);
+  });
+
   it("applies .skillbridge policy.yaml to read and run commands", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-cli-policy-"));
     const skillRoot = path.join(tempRoot, "skills");

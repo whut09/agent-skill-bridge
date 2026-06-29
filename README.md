@@ -37,6 +37,7 @@ pnpm build
 pnpm skillbridge scan examples/skills
 pnpm skillbridge search examples/skills "PR risk review"
 pnpm skillbridge activate examples/skills "PR risk review" --budget 4000
+pnpm skillbridge exec examples/skills "PR risk review" --enable-scripts
 ```
 
 Expected result: `Code Review` is selected, the system patch includes the selected skill body, and resources/scripts remain available through runtime tools instead of being dumped into the prompt.
@@ -346,12 +347,20 @@ skillbridge search ./examples/skills "PR risk review"
 skillbridge activate ./examples/skills "code review" --budget 4000
 skillbridge read ./examples/skills "Code Review" references/guide.md
 skillbridge run ./examples/skills "Code Review" scripts/echo.mjs --enable-scripts
+skillbridge exec ./examples/skills "code review" --enable-scripts
 skillbridge trace ./examples/skills
 skillbridge trace ./examples/skills --query "PR risk" --json
 skillbridge trace ./examples/skills --query "PR risk" --explain
 ```
 
-Every CLI command accepts `--json`, `--debug`, and `--budget <number>`. `skillbridge trace` scans the given skill directory and prints runtime trace events by default. Use `--json` or `--last` for the standard audit record, and `--explain` for a human-readable run explanation.
+Every CLI command accepts `--json`, `--debug`, and `--budget <number>`. `skillbridge exec` first routes the query, then runs the selected skill's `entrypoints.default` script, or the only script when the skill contains exactly one script. `skillbridge trace` scans the given skill directory and prints runtime trace events by default. Use `--json` or `--last` for the standard audit record, and `--explain` for a human-readable run explanation.
+
+PaperAgent skill example:
+
+```powershell
+pnpm skillbridge exec F:\codex\code\paper_agent\paper_agent\skills "总结这篇论文" --enable-scripts --timeout-ms 1200000 --arg=--mode --arg=summarize --arg=--input --arg=F:\path\paper.pdf --arg=--output --arg=F:\path\out --arg=--config --arg=F:\codex\code\paper_agent\config.local.json
+pnpm skillbridge exec F:\codex\code\paper_agent\paper_agent\skills "翻译这篇论文" --enable-scripts --timeout-ms 1200000 --arg=--mode --arg=translate --arg=--input --arg=F:\path\paper.pdf --arg=--output --arg=F:\path\out --arg=--config --arg=F:\codex\code\paper_agent\config.local.json --arg=--service --arg=openai
+```
 
 ## Trace Events
 

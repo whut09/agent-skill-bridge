@@ -4,6 +4,8 @@ name: Code Review
 description: Review code changes for correctness, regressions, and test coverage gaps.
 metadata:
   keywords: code review, PR, risk, tests, 代码评审, 风险检查, 回归风险
+entrypoints:
+  default: scripts/echo.mjs
 ---
 
 # Code Review

@@ -9,6 +9,7 @@ import {
   scanSkillDirs,
   searchSkills,
   type ResourceManagerResult,
+  type LocalScriptExecutorResult,
   type RuntimeTraceRecord,
   type SkillManifest,
 } from "@skillbridge/core";
@@ -325,6 +326,20 @@ function formatResource(result: ResourceManagerResult, debug: boolean): string {
   );
 }
 
+function formatScriptResult(scriptPath: string, result: LocalScriptExecutorResult): string {
+  return [
+    `Script: ${scriptPath}`,
+    `Exit code: ${result.exitCode}`,
+    `Timed out: ${result.timedOut}`,
+    "",
+    "stdout:",
+    result.stdout || "(empty)",
+    "",
+    "stderr:",
+    result.stderr || "(empty)",
+  ].join("\n");
+}
+
 function addCommonOptions(command: Command, includeBudget = false): Command {
   command.option("--json", "print machine-readable JSON output", false);
   command.option("--debug", "include debug details such as absolute paths", false);
@@ -417,7 +432,7 @@ export function createCliProgram(): Command {
       const result = {
         ok: true,
         package: "agent-skill-bridge",
-        commands: ["doctor", "scan", "validate", "search", "activate", "read", "run", "trace", "eval"],
+        commands: ["doctor", "scan", "validate", "search", "activate", "read", "run", "exec", "trace", "eval"],
       };
       output(result, `agent-skill-bridge: ok\nCommands: ${result.commands.join(", ")}`, wantsJson());
     });
@@ -543,18 +558,66 @@ export function createCliProgram(): Command {
           timeoutMs: options.timeoutMs,
           args: options.arg,
         });
+        output(result, formatScriptResult(resolvedScriptPath, result), wantsJson());
+      },
+    );
+
+  addCommonOptions(program.command("exec"), true)
+    .argument("<path>", "path to a skill root directory")
+    .argument("<query>", "user task query used to route the skill")
+    .description("Route a query to a skill and run its default entrypoint script")
+    .option("--enable-scripts", "allow local script execution", false)
+    .option("--timeout-ms <number>", "script timeout in milliseconds", (value) => Number(value))
+    .option("--script <path>", "override the selected skill default entrypoint")
+    .option("--arg <value>", "script argument", (value, previous: string[]) => [...previous, value], [])
+    .action(
+      async (
+        skillRoot: string,
+        query: string,
+        options: { enableScripts: boolean; timeoutMs?: number; script?: string; arg: string[]; budget?: number },
+      ) => {
+        const runtime = await createRuntime([skillRoot]);
+        await runtime.init();
+        const prepared = await runtime.prepare({
+          messages: [{ role: "user", content: query }],
+          userMessage: query,
+          budget: options.budget ?? rootBudget(),
+        });
+        const skill = prepared.activationDecision.skill;
+        if (!skill) {
+          throw new Error(`No skill selected for query: ${query}`);
+        }
+        const scriptPath =
+          options.script ?? skill.entrypoints?.default ?? (skill.scripts.length === 1 ? skill.scripts[0] : undefined);
+        if (!scriptPath) {
+          throw new Error(
+            `Selected skill has no default entrypoint and does not contain exactly one script: ${skill.name}`,
+          );
+        }
+        const scriptResult = await runtime.runScript({
+          skill,
+          scriptPath,
+          enableScripts: options.enableScripts || undefined,
+          timeoutMs: options.timeoutMs,
+          args: options.arg,
+        });
+        const result = {
+          query,
+          selectedSkill: {
+            id: skill.id,
+            name: skill.name,
+          },
+          scriptPath,
+          activationDecision: prepared.activationDecision,
+          result: scriptResult,
+        };
         output(
           result,
           [
-            `Script: ${resolvedScriptPath}`,
-            `Exit code: ${result.exitCode}`,
-            `Timed out: ${result.timedOut}`,
+            `Selected skill: ${skill.name}`,
+            `Confidence: ${prepared.activationDecision.confidence.toFixed(2)}`,
             "",
-            "stdout:",
-            result.stdout || "(empty)",
-            "",
-            "stderr:",
-            result.stderr || "(empty)",
+            formatScriptResult(scriptPath, scriptResult),
           ].join("\n"),
           wantsJson(),
         );
