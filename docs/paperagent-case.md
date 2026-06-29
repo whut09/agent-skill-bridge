@@ -219,18 +219,11 @@ skillbridge exec
 
 ## 9. 在 PaperAgent 里面怎么用 Skill
 
-PaperAgent 已经内置读取 skill prompt 的逻辑。它不是在运行时必须启动 SkillBridge，而是直接读取自己的 skill references：
+PaperAgent 现在把 SkillBridge 当成通用 skill engine 来用：当它需要摘要或翻译 prompt 时，会优先通过 `skillbridge read` 读取 skill reference；当它需要路由信息时，可以通过 `skillbridge scan` 或 `skillbridge activate` 获取 skill 元数据。若 SkillBridge 不可用，才回退到仓库内置的本地 skill 文件。
 
-```text
-paper_agent/skill_prompts.py
-  -> paper_agent/skills/paper-agent-paper-reading/references/summary-system-prompt.md
-  -> paper_agent/skills/paper-agent-paper-reading/references/final-note-prompt.md
-  -> paper_agent/skills/paper-agent-paper-reading/references/translation-prompt.md
-```
+这样就有两层使用方式：
 
-所以有两种用法：
-
-### 方式 A：直接用 PaperAgent
+### 方式 A：直接用 PaperAgent，但 prompt 仍走 SkillBridge
 
 ```powershell
 cd F:\codex\code\paper_agent
@@ -238,9 +231,9 @@ python -m paper_agent summarize F:\path\paper.pdf --output F:\path\out --config 
 python -m paper_agent F:\path\paper.pdf -s openai --config config.local.json
 ```
 
-这种方式不经过 SkillBridge，但 PaperAgent 仍然会使用 skill 里的 prompt 文件。
+这种方式不需要你手工调用 SkillBridge CLI；但 PaperAgent 在内部取 prompt 时，仍然会优先通过 SkillBridge 解析 skill。
 
-### 方式 B：通过 SkillBridge 调用 PaperAgent
+### 方式 B：直接通过 SkillBridge 调用 PaperAgent
 
 ```powershell
 cd F:\codex\code\agent-skill-bridge
@@ -265,7 +258,7 @@ references/final-note-prompt.md
 references/translation-prompt.md
 ```
 
-PaperAgent 会优先读取 `PAPER_AGENT_SKILL_DIR`，读取不到时才使用内置 skill。
+PaperAgent 会优先读取 `PAPER_AGENT_SKILL_DIR`，并通过 `PAPER_AGENT_SKILLBRIDGE_ROOT` 指向的 SkillBridge 解析这些 skill；读取不到时才使用内置 skill。
 
 ## 11. 常见问题
 

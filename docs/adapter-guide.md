@@ -88,3 +88,17 @@ async function runScript(skillId: string, scriptPath: string, args: string[]) {
 - Hide absolute paths from model-visible outputs.
 - Preserve trace events for debugging.
 - Keep model-facing resource outputs small and relevant.
+
+## Python Host Example: PaperAgent
+
+PaperAgent is a concrete host that treats SkillBridge as its skill engine.
+
+Recommended integration flow:
+
+1. Install and build SkillBridge.
+2. Point PaperAgent at a skill root, such as `paper_agent/skills/paper-agent-paper-reading`.
+3. Let PaperAgent call `skillbridge read <skillRoot> references/<name>.md --json` when it needs prompt text.
+4. Let PaperAgent call `skillbridge scan <skillRoot>` or `skillbridge activate <skillRoot> <query>` when it needs routing metadata.
+5. Keep PaperAgent's own translation/summarization pipeline unchanged; only the prompt and skill loading layer moves behind SkillBridge.
+
+This makes SkillBridge the reusable engine and PaperAgent the real-world example that consumes it.
