@@ -1092,6 +1092,7 @@ denied-tools:
 
     await mkdir(path.join(skillDir, "references"), { recursive: true });
     await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await mkdir(path.join(skillDir, "assets"), { recursive: true });
     await mkdir(policyDir, { recursive: true });
     await writeFile(
       path.join(policyDir, "policy.yaml"),
@@ -1099,10 +1100,18 @@ denied-tools:
         "scripts:",
         "  enabled: true",
         "  timeoutMs: 5000",
+        "  allow:",
+        "    - scripts/echo.mjs",
         "trust:",
-        "  minimumTrustForScripts: untrusted",
+        "  minimumTrustForScripts: trusted",
+        "  default: trusted",
         "resources:",
         "  maxFileBytes: 4",
+        "  allow:",
+        "    - references/**",
+        "  allowedExtensions: .txt, .md",
+        "  deniedExtensions:",
+        "    - .exe",
         "network:",
         "  enabled: false",
       ].join("\n"),
@@ -1114,7 +1123,6 @@ denied-tools:
 id: review
 name: Review
 description: Review with policy defaults
-trust: untrusted
 ---
 
 # Review`,
@@ -1122,7 +1130,10 @@ trust: untrusted
     );
     await writeFile(path.join(skillDir, "references", "small.txt"), "ok", "utf8");
     await writeFile(path.join(skillDir, "references", "large.txt"), "too large", "utf8");
+    await writeFile(path.join(skillDir, "references", "blocked.exe"), "no", "utf8");
+    await writeFile(path.join(skillDir, "assets", "secret.txt"), "no", "utf8");
     await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("policy script ok");`, "utf8");
+    await writeFile(path.join(skillDir, "scripts", "other.mjs"), `console.log("blocked script");`, "utf8");
 
     const loadedPolicy = await loadSkillBridgePolicy([skillRoot]);
     const runtime = new SkillBridgeRuntime([skillRoot], createRuntimePolicyFromConfig(loadedPolicy.config));
@@ -1133,13 +1144,21 @@ trust: untrusted
 
     expect(loadedPolicy.path).toBe(path.join(policyDir, "policy.yaml"));
     expect(loadedPolicy.config).toMatchObject({
-      scripts: { enabled: true, timeoutMs: 5000 },
-      trust: { minimumTrustForScripts: "untrusted" },
-      resources: { maxFileBytes: 4 },
+      scripts: { enabled: true, timeoutMs: 5000, allow: ["scripts/echo.mjs"] },
+      trust: { minimumTrustForScripts: "trusted", default: "trusted" },
+      resources: {
+        maxFileBytes: 4,
+        allow: ["references/**"],
+        allowedExtensions: [".txt", ".md"],
+        deniedExtensions: [".exe"],
+      },
       network: { enabled: false },
     });
     expect(smallResource).toMatchObject({ type: "text", content: "ok" });
     await expect(runtime.readResource("review", "references/large.txt")).rejects.toThrow(/maxFileBytes/);
+    await expect(runtime.readResource("review", "assets/secret.txt")).rejects.toThrow(/permissions\.read/);
+    await expect(runtime.readResource("review", "references/blocked.exe")).rejects.toThrow(/extension is denied/);
+    await expect(runtime.runScript("review", "scripts/other.mjs")).rejects.toThrow(/policy allowlist/);
     expect(scriptResult.stdout).toContain("policy script ok");
   });
 });

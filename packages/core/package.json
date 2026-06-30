@@ -4,7 +4,9 @@
   "type": "module",
   "dependencies": {
     "@skillbridge/policy": "workspace:*",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "yaml": "^2.9.0",
+    "zod": "^3.24.1"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -47,8 +47,12 @@ import { createRuntimeTraceEvent } from "./trace.js";
 export type SkillBridgeRuntimePolicyOptions = {
   allowlist?: AllowlistPolicy;
   minimumTrustForScripts?: TrustLevel;
+  defaultTrustLevel?: TrustLevel;
   resources?: {
     maxFileBytes?: number;
+    allow?: string[];
+    allowedExtensions?: string[];
+    deniedExtensions?: string[];
   };
   scripts?: {
     enabled?: boolean;
@@ -98,6 +102,46 @@ function buildToolInstructions(selectedSkill?: SkillManifest): string {
 
 function createSkillId(skill: SkillManifest): string {
   return skill.id;
+}
+
+function normalizeExtension(value: string): string {
+  const extension = value.trim().toLowerCase();
+  if (!extension) {
+    return "";
+  }
+
+  return extension.startsWith(".") ? extension : `.${extension}`;
+}
+
+function checkResourceExtensionPolicy(
+  resourcePolicy: SkillBridgeRuntimePolicyOptions["resources"],
+  resourcePath: string,
+): PolicyDecision {
+  const extension = normalizeExtension(path.extname(resourcePath));
+  const deniedExtensions = resourcePolicy?.deniedExtensions?.map(normalizeExtension) ?? [];
+  const allowedExtensions = resourcePolicy?.allowedExtensions?.map(normalizeExtension) ?? [];
+
+  if (extension && deniedExtensions.includes(extension)) {
+    return {
+      allowed: false,
+      code: "resource.extension_denied",
+      reason: `Resource extension is denied by policy: ${extension}`,
+    };
+  }
+
+  if (allowedExtensions.length > 0 && (!extension || !allowedExtensions.includes(extension))) {
+    return {
+      allowed: false,
+      code: "resource.extension_not_allowed",
+      reason: `Resource extension is not in allowedExtensions: ${extension || "(none)"}`,
+    };
+  }
+
+  return {
+    allowed: true,
+    code: "resource.extension_allowed",
+    reason: "Resource extension is allowed by policy.",
+  };
 }
 
 function inferNextActions(selectedSkill?: SkillManifest): Array<"readResource" | "runScript" | "askUser" | "none"> {
@@ -335,6 +379,8 @@ export class SkillBridgeRuntime {
       const decisions = [
         checkToolAllowed(skill, "readResource"),
         checkReadPermission(skill.permissions, input.resourcePath),
+        checkReadPermission({ read: this.policy.resources?.allow }, input.resourcePath),
+        checkResourceExtensionPolicy(this.policy.resources, input.resourcePath),
       ];
       this.recordToolDecision("readResource", input.resourcePath, decisions);
       this.enforcePolicy("read_resource", skill, decisions, {
@@ -397,7 +443,9 @@ export class SkillBridgeRuntime {
         checkToolAllowed(input.skill, "runScript"),
         checkExecutePermission(input.skill.permissions),
         checkTrustLevel(
-          normalizeTrustLevel(input.skill.rawFrontmatter?.trust ?? input.skill.frontmatter.trust),
+          normalizeTrustLevel(
+            input.skill.rawFrontmatter?.trust ?? input.skill.frontmatter.trust ?? this.policy.defaultTrustLevel,
+          ),
           this.policy.minimumTrustForScripts ?? "local",
         ),
         checkScriptAllowed(this.policy.allowlist, input.scriptPath),

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import YAML from "yaml";
+import { z } from "zod";
 import type { TrustLevel } from "@skillbridge/policy";
 import type { SkillBridgeRuntimePolicyOptions } from "./runtime/SkillBridgeRuntime.js";
 
@@ -8,12 +10,17 @@ export type SkillBridgePolicyConfig = {
   scripts?: {
     enabled?: boolean;
     timeoutMs?: number;
+    allow?: string[];
   };
   trust?: {
     minimumTrustForScripts?: TrustLevel;
+    default?: TrustLevel;
   };
   resources?: {
     maxFileBytes?: number;
+    allow?: string[];
+    allowedExtensions?: string[];
+    deniedExtensions?: string[];
   };
   network?: {
     enabled?: boolean;
@@ -25,120 +32,119 @@ export type LoadedSkillBridgePolicyConfig = {
   config: SkillBridgePolicyConfig;
 };
 
-function parseScalar(value: string): string | number | boolean {
-  const normalizedValue = value.trim();
-  if (normalizedValue === "true") {
-    return true;
-  }
-  if (normalizedValue === "false") {
-    return false;
-  }
-  if (/^-?\d+(?:\.\d+)?$/u.test(normalizedValue)) {
-    return Number(normalizedValue);
-  }
-
-  return normalizedValue.replace(/^["']|["']$/gu, "");
-}
-
-function assignNestedValue(target: Record<string, unknown>, pathSegments: string[], value: unknown): void {
-  let current = target;
-  for (const segment of pathSegments.slice(0, -1)) {
-    const existingValue = current[segment];
-    if (!existingValue || typeof existingValue !== "object" || Array.isArray(existingValue)) {
-      current[segment] = {};
-    }
-    current = current[segment] as Record<string, unknown>;
-  }
-
-  current[pathSegments[pathSegments.length - 1]] = value;
-}
-
-function parseSimpleYaml(content: string): Record<string, unknown> {
-  const root: Record<string, unknown> = {};
-  const stack: Array<{ indent: number; segments: string[] }> = [{ indent: -1, segments: [] }];
-
-  for (const rawLine of content.split(/\r?\n/u)) {
-    const commentIndex = rawLine.indexOf("#");
-    const line = (commentIndex === -1 ? rawLine : rawLine.slice(0, commentIndex)).replace(/\s+$/u, "");
-    if (!line.trim()) {
-      continue;
+const trustLevelSchema = z.enum(["trusted", "local", "community", "untrusted"]);
+const stringListSchema = z.preprocess(
+  (value) => {
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
     }
 
-    const indent = line.length - line.trimStart().length;
-    const trimmedLine = line.trim();
-    const match = /^(?<key>[A-Za-z0-9_.-]+):(?:\s*(?<value>.*))?$/u.exec(trimmedLine);
-    if (!match?.groups) {
-      throw new Error(`Unsupported policy.yaml syntax: ${trimmedLine}`);
-    }
-
-    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
-      stack.pop();
-    }
-
-    const key = match.groups.key;
-    const rawValue = match.groups.value ?? "";
-    const segments = [...stack[stack.length - 1].segments, key];
-    if (rawValue === "") {
-      assignNestedValue(root, segments, {});
-      stack.push({ indent, segments });
-    } else {
-      assignNestedValue(root, segments, parseScalar(rawValue));
-    }
-  }
-
-  return root;
-}
-
-function readBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
-  const value = record[key];
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function readNumber(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function readRecord(record: Record<string, unknown>, key: string): Record<string, unknown> {
-  const value = record[key];
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function readTrustLevel(record: Record<string, unknown>, key: string): TrustLevel | undefined {
-  const value = record[key];
-  if (value === "trusted" || value === "local" || value === "community" || value === "untrusted") {
     return value;
+  },
+  z.array(z.string().trim().min(1)),
+);
+
+const policyConfigSchema = z
+  .object({
+    scripts: z
+      .object({
+        enabled: z.boolean().optional(),
+        timeoutMs: z.number().finite().positive().optional(),
+        allow: stringListSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+    trust: z
+      .object({
+        minimumTrustForScripts: trustLevelSchema.optional(),
+        default: trustLevelSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+    resources: z
+      .object({
+        maxFileBytes: z.number().finite().positive().optional(),
+        allow: stringListSchema.optional(),
+        allowedExtensions: stringListSchema.optional(),
+        deniedExtensions: stringListSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+    network: z
+      .object({
+        enabled: z.boolean().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+function parsePolicyYaml(content: string): Record<string, unknown> {
+  const parsed = YAML.parse(content);
+  if (parsed === null || parsed === undefined) {
+    return {};
+  }
+  if (typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("policy.yaml must contain a YAML mapping at the top level.");
   }
 
-  return undefined;
+  return parsed as Record<string, unknown>;
+}
+
+function cleanUndefined<T extends Record<string, unknown>>(record: T): T {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as T;
+}
+
+function parsePolicyConfig(rawConfig: Record<string, unknown>): SkillBridgePolicyConfig {
+  const parsed = policyConfigSchema.safeParse(rawConfig);
+  if (!parsed.success) {
+    throw new Error(`Invalid policy.yaml: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`);
+  }
+
+  return {
+    scripts: parsed.data.scripts
+      ? cleanUndefined({
+          enabled: parsed.data.scripts.enabled,
+          timeoutMs: parsed.data.scripts.timeoutMs,
+          allow: parsed.data.scripts.allow,
+        })
+      : undefined,
+    trust: parsed.data.trust
+      ? cleanUndefined({
+          minimumTrustForScripts: parsed.data.trust.minimumTrustForScripts,
+          default: parsed.data.trust.default,
+        })
+      : undefined,
+    resources: parsed.data.resources
+      ? cleanUndefined({
+          maxFileBytes: parsed.data.resources.maxFileBytes,
+          allow: parsed.data.resources.allow,
+          allowedExtensions: parsed.data.resources.allowedExtensions,
+          deniedExtensions: parsed.data.resources.deniedExtensions,
+        })
+      : undefined,
+    network: parsed.data.network
+      ? cleanUndefined({
+          enabled: parsed.data.network.enabled,
+        })
+      : undefined,
+  };
 }
 
 export function normalizeSkillBridgePolicyConfig(rawConfig: Record<string, unknown>): SkillBridgePolicyConfig {
-  const scripts = readRecord(rawConfig, "scripts");
-  const trust = readRecord(rawConfig, "trust");
-  const resources = readRecord(rawConfig, "resources");
-  const network = readRecord(rawConfig, "network");
-
-  return {
-    scripts: {
-      enabled: readBoolean(scripts, "enabled"),
-      timeoutMs: readNumber(scripts, "timeoutMs"),
-    },
-    trust: {
-      minimumTrustForScripts: readTrustLevel(trust, "minimumTrustForScripts"),
-    },
-    resources: {
-      maxFileBytes: readNumber(resources, "maxFileBytes"),
-    },
-    network: {
-      enabled: readBoolean(network, "enabled"),
-    },
-  };
+  return parsePolicyConfig(rawConfig);
 }
 
 export function createRuntimePolicyFromConfig(config: SkillBridgePolicyConfig): SkillBridgeRuntimePolicyOptions {
   return {
+    allowlist: {
+      scripts: config.scripts?.allow,
+    },
     minimumTrustForScripts: config.trust?.minimumTrustForScripts,
+    defaultTrustLevel: config.trust?.default,
     scripts: config.scripts,
     resources: config.resources,
     network: config.network,
@@ -169,7 +175,7 @@ export async function loadSkillBridgePolicy(
     return { config: {} };
   }
 
-  const rawConfig = parseSimpleYaml(await readFile(policyPath, "utf8"));
+  const rawConfig = parsePolicyYaml(await readFile(policyPath, "utf8"));
   return {
     path: policyPath,
     config: normalizeSkillBridgePolicyConfig(rawConfig),
