@@ -2,9 +2,20 @@
   "name": "@skillbridge/cli",
   "version": "0.1.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "bin": {
     "skillbridge": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@skillbridge/core": "workspace:*",
     "commander": "^12.1.0"

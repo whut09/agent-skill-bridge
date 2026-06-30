@@ -2,6 +2,21 @@
   "name": "@skillbridge/mcp-server",
   "version": "0.1.0",
   "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "skillbridge-mcp-server": "./dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "dependencies": {
     "@skillbridge/core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.17.4",

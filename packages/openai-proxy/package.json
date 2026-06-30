@@ -2,6 +2,20 @@
   "name": "@skillbridge/openai-proxy",
   "version": "0.1.0",
   "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "skillbridge-openai-proxy": "./dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@skillbridge/core": "workspace:*"
   },
