@@ -10,7 +10,7 @@ import {
   type SkillBridgePolicyConfig,
 } from "@skillbridge/core";
 import path from "node:path";
-import type { ResourceManagerResult } from "@skillbridge/core";
+import type { ResourceManagerResult, SkillBridgeRuntimeInitResult } from "@skillbridge/core";
 
 export type SkillBridgeMcpServerOptions = {
   skillDirs: string[];
@@ -21,15 +21,16 @@ export type SkillBridgeMcpServerOptions = {
 
 export function createMcpServer(options: SkillBridgeMcpServerOptions) {
   const runtime = new SkillBridgeRuntime(options.skillDirs, createRuntimePolicyFromConfig(options.policy ?? {}));
+  const initCache = createRuntimeInitCache(runtime);
   const server = new McpServer({
     name: "agent-skill-bridge",
     version: "0.1.0",
   });
 
-  registerNativeTools(server, runtime, options);
-  registerNativeResources(server, runtime);
+  registerNativeTools(server, runtime, initCache, options);
+  registerNativeResources(server, runtime, initCache);
   registerNativePrompts(server);
-  registerLegacyTools(server, runtime, options);
+  registerLegacyTools(server, runtime, initCache, options);
 
   return { server, runtime };
 }
@@ -42,6 +43,7 @@ export async function createMcpServerWithLoadedPolicy(options: SkillBridgeMcpSer
 function registerNativeTools(
   server: McpServer,
   runtime: SkillBridgeRuntime,
+  initCache: RuntimeInitCache,
   options: SkillBridgeMcpServerOptions,
 ): void {
   server.registerTool(
@@ -52,6 +54,7 @@ function registerNativeTools(
       inputSchema: { query: z.string() },
     },
     async ({ query }) => {
+      await initCache.ensure();
       const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
       return {
         content: [
@@ -72,6 +75,7 @@ function registerNativeTools(
       inputSchema: { query: z.string() },
     },
     async ({ query }) => {
+      await initCache.ensure();
       const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
       return {
         content: [
@@ -83,6 +87,32 @@ function registerNativeTools(
                 systemPatch: prepared.systemPatch,
                 progressiveLoading: prepared.progressiveLoading,
                 toolInstructions: prepared.toolInstructions,
+              },
+              options.debug,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "skillbridge.refresh",
+    {
+      title: "Refresh Skills",
+      description: "Rescan configured skill directories and update the MCP server runtime cache.",
+      inputSchema: {},
+    },
+    async () => {
+      const { skills } = await initCache.refresh();
+      return {
+        content: [
+          {
+            type: "text",
+            text: stringifyResult(
+              {
+                skillCount: skills.length,
+                skills,
               },
               options.debug,
             ),
@@ -108,7 +138,7 @@ function registerNativeTools(
       },
     },
     async ({ skillId, skillName, scriptPath, enableScripts, timeoutMs, args }) => {
-      const result = await runScriptTool(runtime, options, {
+      const result = await runScriptTool(runtime, initCache, options, {
         skillId: skillId as string,
         skillName: skillName as string | undefined,
         scriptPath: scriptPath as string,
@@ -124,10 +154,10 @@ function registerNativeTools(
   );
 }
 
-function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime): void {
+function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime, initCache: RuntimeInitCache): void {
   const completion = {
     skillId: async (value: string) => {
-      const { skills } = await ensureRuntimeInitialized(runtime);
+      const { skills } = await initCache.ensure();
       const normalizedValue = value.toLowerCase();
       return skills.map((skill) => skill.id).filter((id) => id.toLowerCase().includes(normalizedValue));
     },
@@ -137,7 +167,7 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
     "skillbridge-skill-md",
     new ResourceTemplate("skill://{skillId}/SKILL.md", {
       list: async () => ({
-        resources: (await ensureRuntimeInitialized(runtime)).skills.map((skill) => ({
+        resources: (await initCache.ensure()).skills.map((skill) => ({
           uri: toSkillUri(skill.id, "SKILL.md"),
           name: `${skill.name} SKILL.md`,
           title: `${skill.name} SKILL.md`,
@@ -152,13 +182,13 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
       description: "Selected skill SKILL.md files.",
       mimeType: "text/markdown",
     },
-    async (uri, variables) => readSkillResourceUri(runtime, uri, variables.skillId as string, "SKILL.md"),
+    async (uri, variables) => readSkillResourceUri(runtime, initCache, uri, variables.skillId as string, "SKILL.md"),
   );
 
   server.registerResource(
     "skillbridge-reference",
     new ResourceTemplate("skill://{skillId}/references/{file}", {
-      list: async () => listSkillResources(runtime, "references"),
+      list: async () => listSkillResources(runtime, initCache, "references"),
       complete: completion,
     }),
     {
@@ -166,13 +196,19 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
       description: "Reference files exposed by skills.",
     },
     async (uri, variables) =>
-      readSkillResourceUri(runtime, uri, variables.skillId as string, `references/${variables.file as string}`),
+      readSkillResourceUri(
+        runtime,
+        initCache,
+        uri,
+        variables.skillId as string,
+        `references/${variables.file as string}`,
+      ),
   );
 
   server.registerResource(
     "skillbridge-asset",
     new ResourceTemplate("skill://{skillId}/assets/{file}", {
-      list: async () => listSkillResources(runtime, "assets"),
+      list: async () => listSkillResources(runtime, initCache, "assets"),
       complete: completion,
     }),
     {
@@ -180,7 +216,7 @@ function registerNativeResources(server: McpServer, runtime: SkillBridgeRuntime)
       description: "Asset files exposed by skills.",
     },
     async (uri, variables) =>
-      readSkillResourceUri(runtime, uri, variables.skillId as string, `assets/${variables.file as string}`),
+      readSkillResourceUri(runtime, initCache, uri, variables.skillId as string, `assets/${variables.file as string}`),
   );
 }
 
@@ -277,10 +313,11 @@ function registerNativePrompts(server: McpServer): void {
 function registerLegacyTools(
   server: McpServer,
   runtime: SkillBridgeRuntime,
+  initCache: RuntimeInitCache,
   options: SkillBridgeMcpServerOptions,
 ): void {
   server.tool("skillbridge_list_skills", {}, async () => {
-    const { skills } = await runtime.init();
+    const { skills } = await initCache.ensure();
     return {
       content: [
         {
@@ -292,6 +329,7 @@ function registerLegacyTools(
   });
 
   server.tool("skillbridge_search_skills", { query: z.string() }, async ({ query }) => {
+    await initCache.ensure();
     const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
     return {
       content: [
@@ -304,6 +342,7 @@ function registerLegacyTools(
   });
 
   server.tool("skillbridge_activate_skill", { query: z.string() }, async ({ query }) => {
+    await initCache.ensure();
     const prepared = await runtime.prepare({ messages: [], userMessage: query as string });
     return {
       content: [
@@ -332,6 +371,7 @@ function registerLegacyTools(
     async ({ skillId, skillName, skillPath }) => {
       const skill = await resolveSkill(
         runtime,
+        initCache,
         skillId as string | undefined,
         skillName as string | undefined,
         skillPath as string | undefined,
@@ -356,6 +396,7 @@ function registerLegacyTools(
     async ({ skillId, skillName, skillPath }) => {
       const skill = await resolveSkill(
         runtime,
+        initCache,
         skillId as string | undefined,
         skillName as string | undefined,
         skillPath as string | undefined,
@@ -379,6 +420,7 @@ function registerLegacyTools(
     async ({ skillId, skillName, skillPath, resourcePath }) => {
       const skill = await resolveSkill(
         runtime,
+        initCache,
         skillId as string | undefined,
         skillName as string | undefined,
         skillPath as string | undefined,
@@ -405,7 +447,7 @@ function registerLegacyTools(
       args: z.array(z.string()).optional(),
     },
     async ({ skillId, skillName, skillPath, scriptPath, enableScripts, timeoutMs, args }) => {
-      const result = await runScriptTool(runtime, options, {
+      const result = await runScriptTool(runtime, initCache, options, {
         skillId: skillId as string | undefined,
         skillName: skillName as string | undefined,
         skillPath: skillPath as string | undefined,
@@ -422,12 +464,33 @@ function registerLegacyTools(
   );
 }
 
-async function ensureRuntimeInitialized(runtime: SkillBridgeRuntime) {
-  return runtime.init();
+type RuntimeInitCache = {
+  ensure(): Promise<SkillBridgeRuntimeInitResult>;
+  refresh(): Promise<SkillBridgeRuntimeInitResult>;
+};
+
+function createRuntimeInitCache(runtime: SkillBridgeRuntime): RuntimeInitCache {
+  let initPromise: Promise<SkillBridgeRuntimeInitResult> | undefined;
+  const remember = (promise: Promise<SkillBridgeRuntimeInitResult>) => {
+    initPromise = promise.catch((error: unknown) => {
+      initPromise = undefined;
+      throw error;
+    });
+    return initPromise;
+  };
+
+  return {
+    ensure: () => initPromise ?? remember(runtime.init()),
+    refresh: () => remember(runtime.init()),
+  };
 }
 
-async function listSkillResources(runtime: SkillBridgeRuntime, kind: "references" | "assets") {
-  const { skills } = await ensureRuntimeInitialized(runtime);
+async function listSkillResources(
+  runtime: SkillBridgeRuntime,
+  initCache: RuntimeInitCache,
+  kind: "references" | "assets",
+) {
+  const { skills } = await initCache.ensure();
   const resources = skills.flatMap((skill) => {
     const paths = kind === "references" ? skill.references : skill.assets;
     return paths.map((resourcePath) => ({
@@ -441,8 +504,14 @@ async function listSkillResources(runtime: SkillBridgeRuntime, kind: "references
   return { resources };
 }
 
-async function readSkillResourceUri(runtime: SkillBridgeRuntime, uri: URL, skillId: string, resourcePath: string) {
-  const skill = await resolveSkill(runtime, decodeURIComponent(skillId));
+async function readSkillResourceUri(
+  runtime: SkillBridgeRuntime,
+  initCache: RuntimeInitCache,
+  uri: URL,
+  skillId: string,
+  resourcePath: string,
+) {
+  const skill = await resolveSkill(runtime, initCache, decodeURIComponent(skillId));
   const resource = await runtime.readResource({
     skillPath: skill.path,
     resourcePath: decodeResourcePath(resourcePath),
@@ -455,6 +524,7 @@ async function readSkillResourceUri(runtime: SkillBridgeRuntime, uri: URL, skill
 
 async function runScriptTool(
   runtime: SkillBridgeRuntime,
+  initCache: RuntimeInitCache,
   options: SkillBridgeMcpServerOptions,
   input: {
     skillId?: string;
@@ -471,7 +541,7 @@ async function runScriptTool(
     throw new Error("run_script is disabled by default. Pass enableScripts=true to allow execution.");
   }
 
-  const skill = await resolveSkill(runtime, input.skillId, input.skillName, input.skillPath);
+  const skill = await resolveSkill(runtime, initCache, input.skillId, input.skillName, input.skillPath);
   return runtime.runScript({
     skill,
     scriptPath: input.scriptPath,
@@ -483,11 +553,12 @@ async function runScriptTool(
 
 async function resolveSkill(
   runtime: SkillBridgeRuntime,
+  initCache: RuntimeInitCache,
   skillId?: string,
   deprecatedSkillName?: string,
   deprecatedSkillPath?: string,
 ) {
-  const { skills } = await ensureRuntimeInitialized(runtime);
+  const { skills } = await initCache.ensure();
 
   if (skillId) {
     const skill = runtime.getSkillById(skillId);

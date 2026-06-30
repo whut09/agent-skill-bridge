@@ -28,6 +28,7 @@ describe("mcp server", () => {
       expect.arrayContaining([
         "skillbridge.search",
         "skillbridge.activate",
+        "skillbridge.refresh",
         "skillbridge.run_script",
         "skillbridge_search_skills",
         "skillbridge_activate_skill",
@@ -66,6 +67,35 @@ describe("mcp server", () => {
     expect(result?.resources.map((resource) => resource.uri)).toEqual(
       expect.arrayContaining([expect.stringMatching(/^skill:\/\/.+\/SKILL\.md$/)]),
     );
+  });
+
+  it("caches runtime initialization until skillbridge.refresh is called", async () => {
+    const { server, runtime } = createMcpServer({ skillDirs: [path.resolve("..", "..", "examples", "skills")] });
+    const originalInit = runtime.init.bind(runtime);
+    let initCount = 0;
+    runtime.init = async () => {
+      initCount += 1;
+      return originalInit();
+    };
+
+    const internals = server as unknown as {
+      _registeredTools: Record<string, RegisteredTool>;
+      _registeredResourceTemplates: Record<
+        string,
+        { resourceTemplate: { listCallback?: (extra: unknown) => Promise<{ resources: Array<{ uri: string }> }> } }
+      >;
+    };
+
+    await internals._registeredResourceTemplates["skillbridge-skill-md"].resourceTemplate.listCallback?.({});
+    await internals._registeredResourceTemplates["skillbridge-reference"].resourceTemplate.listCallback?.({});
+    await internals._registeredTools["skillbridge_list_skills"].handler({});
+
+    expect(initCount).toBe(1);
+
+    const refresh = await internals._registeredTools["skillbridge.refresh"].handler({});
+
+    expect(initCount).toBe(2);
+    expect(refresh.content[0].text).toContain("skillCount");
   });
 
   it("parses --skill-dir arguments", () => {
