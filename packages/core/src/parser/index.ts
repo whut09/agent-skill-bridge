@@ -4,6 +4,12 @@ import matter from "gray-matter";
 import { createHash } from "node:crypto";
 import type { SkillManifest } from "../types.js";
 
+export type ScanSkillDirsOptions = {
+  ignoreDirs?: string[];
+  maxDepth?: number;
+  maxSkills?: number;
+};
+
 type RawSkillFrontmatter = {
   id?: unknown;
   name?: unknown;
@@ -24,6 +30,8 @@ type RawSkillFrontmatter = {
   metadata?: unknown;
 };
 
+const DEFAULT_IGNORE_DIRS = ["node_modules", ".git", "dist", "build", "coverage", ".next", ".turbo"];
+
 async function pathExists(candidatePath: string): Promise<boolean> {
   try {
     await fs.access(candidatePath);
@@ -33,15 +41,58 @@ async function pathExists(candidatePath: string): Promise<boolean> {
   }
 }
 
-async function walkSkillDirectories(rootDirectory: string): Promise<string[]> {
-  const skillFiles: string[] = [];
-  const entries = await fs.readdir(rootDirectory, { withFileTypes: true });
+function normalizePathPattern(value: string): string {
+  return value
+    .split("\\")
+    .join("/")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+function createIgnoredDirectorySet(ignoreDirs: string[] | undefined): Set<string> {
+  return new Set([...DEFAULT_IGNORE_DIRS, ...(ignoreDirs ?? [])].map((entry) => normalizePathPattern(entry)));
+}
+
+function shouldIgnoreDirectory(
+  rootDirectory: string,
+  directoryPath: string,
+  directoryName: string,
+  ignoredDirectories: Set<string>,
+): boolean {
+  const relativePath = normalizePathPattern(path.relative(rootDirectory, directoryPath));
+  return ignoredDirectories.has(directoryName) || ignoredDirectories.has(relativePath);
+}
+
+async function walkSkillDirectories(
+  rootDirectory: string,
+  options: ScanSkillDirsOptions,
+  ignoredDirectories: Set<string>,
+  currentDirectory = rootDirectory,
+  currentDepth = 0,
+  skillFiles: string[] = [],
+): Promise<string[]> {
+  if (options.maxSkills !== undefined && skillFiles.length >= options.maxSkills) {
+    return skillFiles;
+  }
+
+  const entries = await fs.readdir(currentDirectory, { withFileTypes: true });
 
   for (const entry of entries) {
-    const entryPath = path.join(rootDirectory, entry.name);
+    if (options.maxSkills !== undefined && skillFiles.length >= options.maxSkills) {
+      break;
+    }
+
+    const entryPath = path.join(currentDirectory, entry.name);
 
     if (entry.isDirectory()) {
-      skillFiles.push(...(await walkSkillDirectories(entryPath)));
+      const nextDepth = currentDepth + 1;
+      if (
+        (options.maxDepth !== undefined && nextDepth > options.maxDepth) ||
+        shouldIgnoreDirectory(rootDirectory, entryPath, entry.name, ignoredDirectories)
+      ) {
+        continue;
+      }
+
+      await walkSkillDirectories(rootDirectory, options, ignoredDirectories, entryPath, nextDepth, skillFiles);
       continue;
     }
 
@@ -283,18 +334,34 @@ export async function parseSkillDir(skillDirectory: string): Promise<SkillManife
   };
 }
 
-export async function scanSkillDirs(skillDirs: string[]): Promise<SkillManifest[]> {
+export async function scanSkillDirs(skillDirs: string[], options: ScanSkillDirsOptions = {}): Promise<SkillManifest[]> {
   const manifests: SkillManifest[] = [];
+  const ignoredDirectories = createIgnoredDirectorySet(options.ignoreDirs);
 
   for (const skillDir of skillDirs) {
+    if (options.maxSkills !== undefined && manifests.length >= options.maxSkills) {
+      break;
+    }
+
     const rootStat = await fs.stat(skillDir);
     if (!rootStat.isDirectory()) {
       continue;
     }
 
-    const skillFiles = await walkSkillDirectories(skillDir);
+    const skillFiles = await walkSkillDirectories(
+      skillDir,
+      {
+        ...options,
+        maxSkills: options.maxSkills === undefined ? undefined : options.maxSkills - manifests.length,
+      },
+      ignoredDirectories,
+    );
 
     for (const skillFilePath of skillFiles) {
+      if (options.maxSkills !== undefined && manifests.length >= options.maxSkills) {
+        break;
+      }
+
       manifests.push(await parseSkillDir(path.dirname(skillFilePath)));
     }
   }

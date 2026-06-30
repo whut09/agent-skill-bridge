@@ -69,6 +69,90 @@ describe("core", () => {
     });
   });
 
+  it("skips default ignored directories while scanning skills", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-ignore-defaults-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const visibleSkillDir = path.join(skillRoot, "visible");
+    const ignoredDirectories = ["node_modules", ".git", "dist", "build", "coverage", ".next", ".turbo"];
+
+    await mkdir(visibleSkillDir, { recursive: true });
+    await writeFile(
+      path.join(visibleSkillDir, "SKILL.md"),
+      `---\nname: Visible Skill\ndescription: Visible description\n---\n# Skill`,
+      "utf8",
+    );
+
+    for (const ignoredDirectory of ignoredDirectories) {
+      const skillDir = path.join(skillRoot, ignoredDirectory, "ignored-skill");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(
+        path.join(skillDir, "SKILL.md"),
+        `---\nname: Ignored ${ignoredDirectory}\ndescription: Ignored description\n---\n# Skill`,
+        "utf8",
+      );
+    }
+
+    const manifests = await scanSkillDirs([skillRoot]);
+
+    expect(manifests.map((skill) => skill.name)).toEqual(["Visible Skill"]);
+  });
+
+  it("supports custom ignored directories while scanning skills", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-ignore-custom-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const visibleSkillDir = path.join(skillRoot, "visible");
+    const ignoredSkillDir = path.join(skillRoot, "vendor", "ignored");
+
+    await mkdir(visibleSkillDir, { recursive: true });
+    await mkdir(ignoredSkillDir, { recursive: true });
+    await writeFile(
+      path.join(visibleSkillDir, "SKILL.md"),
+      `---\nname: Visible Skill\ndescription: Visible description\n---\n# Skill`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(ignoredSkillDir, "SKILL.md"),
+      `---\nname: Vendor Skill\ndescription: Vendor description\n---\n# Skill`,
+      "utf8",
+    );
+
+    const manifests = await scanSkillDirs([skillRoot], { ignoreDirs: ["vendor"] });
+
+    expect(manifests.map((skill) => skill.name)).toEqual(["Visible Skill"]);
+  });
+
+  it("limits scan depth and maximum discovered skills", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-scan-limits-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const rootSkillDir = skillRoot;
+    const levelOneSkillDir = path.join(skillRoot, "level-one");
+    const levelTwoSkillDir = path.join(skillRoot, "level-one", "level-two");
+
+    await mkdir(levelTwoSkillDir, { recursive: true });
+    await writeFile(
+      path.join(rootSkillDir, "SKILL.md"),
+      `---\nname: Root Skill\ndescription: Root description\n---\n# Skill`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(levelOneSkillDir, "SKILL.md"),
+      `---\nname: Level One Skill\ndescription: Level one description\n---\n# Skill`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(levelTwoSkillDir, "SKILL.md"),
+      `---\nname: Level Two Skill\ndescription: Level two description\n---\n# Skill`,
+      "utf8",
+    );
+
+    const depthLimited = await scanSkillDirs([skillRoot], { maxDepth: 1 });
+    const skillLimited = await scanSkillDirs([skillRoot], { maxSkills: 1 });
+
+    expect(depthLimited.map((skill) => skill.name)).toEqual(expect.arrayContaining(["Root Skill", "Level One Skill"]));
+    expect(depthLimited).toHaveLength(2);
+    expect(skillLimited).toHaveLength(1);
+  });
+
   it("rejects skills missing required frontmatter", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-core-missing-"));
     const skillDir = path.join(tempRoot, "skill");
