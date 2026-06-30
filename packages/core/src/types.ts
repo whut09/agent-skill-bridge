@@ -218,6 +218,7 @@ export type RuntimeTraceEvent = {
 };
 
 export type RuntimeTraceCandidate = {
+  skillId?: string;
   name: string;
   score: number;
   reason: string;
@@ -247,6 +248,9 @@ export type RuntimeTraceRecord = {
   userMessage: string;
   selectedSkill?: string;
   candidates: RuntimeTraceCandidate[];
+  retrieved: RuntimeTraceCandidate[];
+  policyFiltered: RuntimeTraceCandidate[];
+  reranked: RuntimeTraceCandidate[];
   context: RuntimeTraceContext;
   tools: RuntimeTraceTool[];
   scripts: RuntimeTraceScript[];

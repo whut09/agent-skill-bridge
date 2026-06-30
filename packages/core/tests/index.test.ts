@@ -356,6 +356,96 @@ Review tradeoffs and risks.`,
     });
   });
 
+  it("injects runtime routing configuration and records route pipeline trace", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-routing-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const trustedDir = path.join(skillRoot, "trusted");
+    const untrustedDir = path.join(skillRoot, "untrusted");
+
+    await mkdir(trustedDir, { recursive: true });
+    await mkdir(untrustedDir, { recursive: true });
+    await writeFile(
+      path.join(trustedDir, "SKILL.md"),
+      `---
+id: trusted-review
+name: Trusted Review
+description: Trusted review skill
+trust: trusted
+metadata:
+  keywords: review
+---
+
+# Trusted Review`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(untrustedDir, "SKILL.md"),
+      `---
+id: untrusted-review
+name: Untrusted Review
+description: Untrusted review skill
+trust: untrusted
+metadata:
+  keywords: review
+---
+
+# Untrusted Review`,
+      "utf8",
+    );
+
+    const runtime = new SkillBridgeRuntime([skillRoot], {
+      routing: {
+        topK: 2,
+        minScore: 0,
+        router: {
+          search: (_query, skills) => [
+            {
+              skill: skills.find((skill) => skill.id === "untrusted-review")!,
+              score: 0.95,
+              reason: ["custom router first"],
+            },
+            {
+              skill: skills.find((skill) => skill.id === "trusted-review")!,
+              score: 0.9,
+              reason: ["custom router second"],
+            },
+          ],
+        },
+        policyFilter: {
+          filter: (input) =>
+            input.candidates.filter((candidate) => candidate.skill.rawFrontmatter?.trust !== "untrusted"),
+        },
+        reranker: {
+          rerank: (input) =>
+            input.candidates.map((candidate) => ({
+              ...candidate,
+              score: 0.77,
+              reason: [...candidate.reason, "reranked"],
+            })),
+        },
+      },
+    });
+    await runtime.init();
+
+    const prepared = await runtime.prepare({
+      messages: [{ role: "user", content: "review this" }],
+      userMessage: "review this",
+    });
+    const trace = runtime.getTraceRecord();
+
+    expect(prepared.activationDecision.selectedSkill).toEqual({ id: "trusted-review", name: "Trusted Review" });
+    expect(trace.retrieved.map((candidate) => candidate.skillId)).toEqual(["untrusted-review", "trusted-review"]);
+    expect(trace.policyFiltered.map((candidate) => candidate.skillId)).toEqual(["trusted-review"]);
+    expect(trace.reranked).toEqual([
+      expect.objectContaining({
+        skillId: "trusted-review",
+        score: 0.77,
+        reason: expect.stringContaining("reranked"),
+      }),
+    ]);
+    expect(trace.candidates).toEqual(trace.reranked);
+  });
+
   it("builds catalog-only context by default", async () => {
     const context = await buildSkillContext({
       skills: [

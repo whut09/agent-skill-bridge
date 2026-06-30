@@ -1,7 +1,12 @@
 import { buildSkillContext } from "../context/index.js";
 import { readSkillBody, scanSkillDirs } from "../parser/index.js";
 import { readSkillResource } from "../resources/index.js";
-import { routeSkills } from "../router/index.js";
+import {
+  routeSkillsWithTrace,
+  type SkillCandidateFilter,
+  type SkillReranker,
+  type SkillRouter,
+} from "../router/index.js";
 import {
   checkExecutePermission,
   checkReadPermission,
@@ -33,6 +38,8 @@ import type {
   SkillResourceListing,
   RuntimeTraceEvent,
   RuntimeTraceRecord,
+  RuntimeTraceCandidate,
+  SkillSearchResult,
 } from "../types.js";
 import { executeLocalScript } from "./localScriptExecutor.js";
 import { createRuntimeTraceEvent } from "./trace.js";
@@ -50,6 +57,19 @@ export type SkillBridgeRuntimePolicyOptions = {
   network?: {
     enabled?: boolean;
   };
+};
+
+export type SkillBridgeRuntimeRoutingOptions = {
+  router?: SkillRouter;
+  policyFilter?: SkillCandidateFilter;
+  reranker?: SkillReranker;
+  topK?: number;
+  minScore?: number;
+};
+
+export type SkillBridgeRuntimeOptions = {
+  policy?: SkillBridgeRuntimePolicyOptions;
+  routing?: SkillBridgeRuntimeRoutingOptions;
 };
 
 function estimateTokens(value: string | undefined): number {
@@ -101,15 +121,28 @@ export class SkillBridgeRuntime {
 
   private readonly policy: SkillBridgeRuntimePolicyOptions;
 
+  private readonly routing: SkillBridgeRuntimeRoutingOptions;
+
   private skills: SkillManifest[] = [];
 
   private traceEvents: RuntimeTraceEvent[] = [];
 
   private traceRecord: RuntimeTraceRecord = this.createTraceRecord("");
 
-  constructor(skillDirs: string[], policy: SkillBridgeRuntimePolicyOptions = {}) {
+  constructor(
+    skillDirs: string[],
+    policyOrOptions: SkillBridgeRuntimePolicyOptions | SkillBridgeRuntimeOptions = {},
+    routing: SkillBridgeRuntimeRoutingOptions = {},
+  ) {
     this.skillDirs = skillDirs;
-    this.policy = policy;
+    const options = policyOrOptions as SkillBridgeRuntimeOptions;
+    if (options.policy !== undefined || options.routing !== undefined) {
+      this.policy = options.policy ?? {};
+      this.routing = options.routing ?? {};
+    } else {
+      this.policy = policyOrOptions as SkillBridgeRuntimePolicyOptions;
+      this.routing = routing;
+    }
   }
 
   private trace(type: string, message: string, metadata?: Record<string, unknown>): void {
@@ -123,6 +156,9 @@ export class SkillBridgeRuntime {
       runId: `run_${randomUUID()}`,
       userMessage,
       candidates: [],
+      retrieved: [],
+      policyFiltered: [],
+      reranked: [],
       context: {
         catalogTokens: 0,
         skillTokens: 0,
@@ -209,15 +245,27 @@ export class SkillBridgeRuntime {
     this.traceRecord = this.createTraceRecord(query);
     this.traceRecord.events = [...this.traceEvents];
     this.trace("search_start", "Searching for active skills.", { userMessage: query });
-    const routedDecision = await routeSkills(query, this.skills);
+    const routeResult = await routeSkillsWithTrace(
+      query,
+      this.skills,
+      {
+        topK: this.routing.topK,
+        minScore: this.routing.minScore,
+      },
+      {
+        router: this.routing.router,
+        policyFilter: this.routing.policyFilter,
+        reranker: this.routing.reranker,
+      },
+    );
+    const routedDecision = routeResult.decision;
     const activeSkills = routedDecision.candidates;
     const selectedSkill = routedDecision.skill;
     this.traceRecord.selectedSkill = selectedSkill?.name;
-    this.traceRecord.candidates = activeSkills.map((result) => ({
-      name: result.skill.name,
-      score: result.score,
-      reason: result.reason.join("; "),
-    }));
+    this.traceRecord.candidates = activeSkills.map((result) => this.toTraceCandidate(result));
+    this.traceRecord.retrieved = routeResult.trace.retrieved.map((result) => this.toTraceCandidate(result));
+    this.traceRecord.policyFiltered = routeResult.trace.policyFiltered.map((result) => this.toTraceCandidate(result));
+    this.traceRecord.reranked = routeResult.trace.reranked.map((result) => this.toTraceCandidate(result));
     this.trace("skill_selected", selectedSkill ? `Selected skill: ${selectedSkill.name}` : "No skill selected.", {
       skillName: selectedSkill?.name,
       confidence: routedDecision.confidence,
@@ -392,6 +440,9 @@ export class SkillBridgeRuntime {
     return {
       ...this.traceRecord,
       candidates: [...this.traceRecord.candidates],
+      retrieved: [...this.traceRecord.retrieved],
+      policyFiltered: [...this.traceRecord.policyFiltered],
+      reranked: [...this.traceRecord.reranked],
       context: { ...this.traceRecord.context },
       tools: [...this.traceRecord.tools],
       scripts: [...this.traceRecord.scripts],
@@ -412,6 +463,15 @@ export class SkillBridgeRuntime {
       allowed: !deniedDecision,
       reason: deniedDecision?.reason ?? "Allowed by runtime policy.",
     });
+  }
+
+  private toTraceCandidate(result: SkillSearchResult): RuntimeTraceCandidate {
+    return {
+      skillId: result.skill.id,
+      name: result.skill.name,
+      score: result.score,
+      reason: result.reason.join("; "),
+    };
   }
 
   private recordScriptDecision(scriptPath: string, decisions: PolicyDecision[]): void {
