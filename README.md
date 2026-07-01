@@ -163,6 +163,16 @@ flowchart LR
 
 ## Change base_url, get skills
 
+Run the OpenAI-compatible proxy with `npx`:
+
+```bash
+SKILLBRIDGE_TARGET_BASE_URL=https://api.openai.com \
+SKILLBRIDGE_TARGET_API_KEY=$OPENAI_API_KEY \
+SKILLBRIDGE_SKILL_DIR=./examples/skills \
+SKILLBRIDGE_PROXY_MODE=loop \
+npx -y @skillbridge/openai-proxy
+```
+
 ```bash
 pnpm install
 pnpm build
@@ -187,6 +197,42 @@ Existing Agent -> SkillBridge Proxy -> LLM -> SKILL.md packages
 ```
 
 The agent keeps using the OpenAI chat completions shape. SkillBridge sits at the runtime boundary: it routes the user task to the right `SKILL.md` package, injects progressive context, exposes skill tools, applies policy gates, and returns trace headers.
+
+## Published Commands
+
+SkillBridge packages expose executable bins for direct use in existing agent setups:
+
+```bash
+npx -y @skillbridge/cli scan ./examples/skills
+npx -y @skillbridge/cli lint ./examples/skills --json
+npx -y @skillbridge/mcp-server --skill-dir ./examples/skills
+npx -y @skillbridge/openai-proxy
+```
+
+The commands map to three integration surfaces:
+
+- `skillbridge`: local validation, routing evals, traces, resource reads, and script execution checks.
+- `skillbridge-mcp-server`: MCP tools/resources/prompts for MCP-capable agents.
+- `skillbridge-openai-proxy`: OpenAI-compatible runtime gateway for agents that can change `base_url`.
+
+This is the core value: the same `SKILL.md` packages become cross-Agent runtime capabilities with routing, policy, eval, and audit behavior, instead of one-off prompt parsing in each agent.
+
+## Docker Compose
+
+The compose example runs the OpenAI-compatible proxy in front of your target model:
+
+```bash
+cd examples
+SKILLBRIDGE_TARGET_API_KEY=$OPENAI_API_KEY docker compose up skillbridge-openai-proxy
+```
+
+Then point any OpenAI-compatible agent at:
+
+```text
+http://localhost:3000/v1
+```
+
+`examples/docker-compose.yml` mounts `examples/skills` read-only and defaults to `SKILLBRIDGE_PROXY_MODE=loop`. The same file also includes an MCP stdio server profile for environments that launch MCP servers from containers.
 
 ## Choose An Integration
 

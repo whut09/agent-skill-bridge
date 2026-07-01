@@ -1,0 +1,27 @@
+services:
+  skillbridge-openai-proxy:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -lc "npx -y @skillbridge/openai-proxy"
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      SKILLBRIDGE_TARGET_BASE_URL: ${SKILLBRIDGE_TARGET_BASE_URL:-https://api.openai.com}
+      SKILLBRIDGE_TARGET_API_KEY: ${SKILLBRIDGE_TARGET_API_KEY:-}
+      SKILLBRIDGE_SKILL_DIR: /skills
+      SKILLBRIDGE_PROXY_MODE: ${SKILLBRIDGE_PROXY_MODE:-loop}
+      SKILLBRIDGE_ENABLE_SCRIPTS: ${SKILLBRIDGE_ENABLE_SCRIPTS:-false}
+    volumes:
+      - ./skills:/skills:ro
+
+  skillbridge-mcp-server:
+    profiles:
+      - mcp
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -lc "npx -y @skillbridge/mcp-server --skill-dir /skills"
+    environment:
+      SKILLBRIDGE_ENABLE_SCRIPTS: ${SKILLBRIDGE_ENABLE_SCRIPTS:-false}
+    volumes:
+      - ./skills:/skills:ro

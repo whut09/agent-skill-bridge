@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -72,6 +72,26 @@ describe("cli package", () => {
 
     expect(body.ok).toBe(true);
     expect(body.commands).toEqual(expect.arrayContaining(["scan", "validate", "search", "activate", "read", "run"]));
+  });
+
+  it("keeps published package bins stable", async () => {
+    const repoRoot = path.resolve(process.cwd(), "../..");
+    const packageBins = await Promise.all(
+      [
+        ["packages/cli/package.json", { skillbridge: "./dist/index.js" }],
+        ["packages/mcp-server/package.json", { "skillbridge-mcp-server": "./dist/server.js" }],
+        ["packages/openai-proxy/package.json", { "skillbridge-openai-proxy": "./dist/server.js" }],
+      ].map(async ([packagePath, expectedBin]) => {
+        const packageJson = JSON.parse(await readFile(path.join(repoRoot, packagePath as string), "utf8")) as {
+          bin?: Record<string, string>;
+        };
+        return { packagePath, expectedBin, actualBin: packageJson.bin };
+      }),
+    );
+
+    for (const { expectedBin, actualBin } of packageBins) {
+      expect(actualBin).toEqual(expectedBin);
+    }
   });
 
   it("scans and validates real skills", async () => {
