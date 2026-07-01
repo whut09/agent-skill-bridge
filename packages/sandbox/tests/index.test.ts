@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeLocalScript } from "../src/local-executor.js";
+import { DockerScriptExecutor, executeLocalScript, LocalNodeScriptExecutor } from "../src/index.js";
 
 describe("local executor", () => {
   it("runs a normal script and captures output", async () => {
@@ -78,5 +78,20 @@ describe("local executor", () => {
         scriptPath: "scripts/hello.mjs",
       }),
     ).rejects.toThrow(/disabled/);
+  });
+
+  it("exposes local node and docker executors through a stable interface", async () => {
+    const localExecutor = new LocalNodeScriptExecutor();
+    const dockerExecutor = new DockerScriptExecutor({ image: "node:22-alpine", network: "none" });
+
+    expect(localExecutor.name).toBe("local-node");
+    expect(dockerExecutor.name).toBe("docker");
+    await expect(
+      dockerExecutor.execute({
+        skillPath: "/tmp/skill",
+        scriptPath: "scripts/run.mjs",
+        enableScripts: true,
+      }),
+    ).rejects.toThrow(/not implemented yet/);
   });
 });

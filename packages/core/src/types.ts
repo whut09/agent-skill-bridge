@@ -144,6 +144,11 @@ export type LocalScriptExecutorResult = {
   timedOut: boolean;
 };
 
+export interface ScriptExecutor {
+  readonly name: string;
+  execute(input: LocalScriptExecutorInput): Promise<LocalScriptExecutorResult>;
+}
+
 export type SkillContextInput = {
   query?: string;
   skills: SkillManifest[];

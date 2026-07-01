@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { LocalScriptExecutorInput, LocalScriptExecutorResult } from "../types.js";
+import type { LocalScriptExecutorInput, LocalScriptExecutorResult, ScriptExecutor } from "../types.js";
 
 function ensureScriptExecutionEnabled(enableScripts?: boolean): void {
   if (enableScripts !== true) {
@@ -25,60 +25,68 @@ function resolveScriptPath(skillPath: string, scriptPath: string): string {
   return normalizedScriptPath;
 }
 
-export async function executeLocalScript(input: LocalScriptExecutorInput): Promise<LocalScriptExecutorResult> {
-  ensureScriptExecutionEnabled(input.enableScripts);
+export class LocalNodeScriptExecutor implements ScriptExecutor {
+  readonly name = "local-node";
 
-  const scriptAbsolutePath = resolveScriptPath(input.skillPath, input.scriptPath);
-  const stat = await fs.stat(scriptAbsolutePath);
+  async execute(input: LocalScriptExecutorInput): Promise<LocalScriptExecutorResult> {
+    ensureScriptExecutionEnabled(input.enableScripts);
 
-  if (!stat.isFile()) {
-    throw new Error(`Script path is not a file: ${input.scriptPath}`);
-  }
+    const scriptAbsolutePath = resolveScriptPath(input.skillPath, input.scriptPath);
+    const stat = await fs.stat(scriptAbsolutePath);
 
-  const timeoutMs = input.timeoutMs ?? 30000;
-  const args = input.args ?? [];
+    if (!stat.isFile()) {
+      throw new Error(`Script path is not a file: ${input.scriptPath}`);
+    }
 
-  return new Promise<LocalScriptExecutorResult>((resolve, reject) => {
-    const childProcess = spawn(process.execPath, [scriptAbsolutePath, ...args], {
-      cwd: path.dirname(scriptAbsolutePath),
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const timeoutMs = input.timeoutMs ?? 30000;
+    const args = input.args ?? [];
 
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let finished = false;
+    return new Promise<LocalScriptExecutorResult>((resolve, reject) => {
+      const childProcess = spawn(process.execPath, [scriptAbsolutePath, ...args], {
+        cwd: path.dirname(scriptAbsolutePath),
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
 
-    const timeoutHandle = setTimeout(() => {
-      timedOut = true;
-      childProcess.kill("SIGKILL");
-    }, timeoutMs);
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      let finished = false;
 
-    childProcess.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        childProcess.kill("SIGKILL");
+      }, timeoutMs);
 
-    childProcess.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
+      childProcess.stdout?.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
 
-    childProcess.on("error", (error) => {
-      if (!finished) {
+      childProcess.stderr?.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+
+      childProcess.on("error", (error) => {
+        if (!finished) {
+          finished = true;
+          clearTimeout(timeoutHandle);
+          reject(error);
+        }
+      });
+
+      childProcess.on("close", (exitCode) => {
+        if (finished) {
+          return;
+        }
+
         finished = true;
         clearTimeout(timeoutHandle);
-        reject(error);
-      }
+        resolve({ stdout, stderr, exitCode, timedOut });
+      });
     });
+  }
+}
 
-    childProcess.on("close", (exitCode) => {
-      if (finished) {
-        return;
-      }
-
-      finished = true;
-      clearTimeout(timeoutHandle);
-      resolve({ stdout, stderr, exitCode, timedOut });
-    });
-  });
+export function executeLocalScript(input: LocalScriptExecutorInput): Promise<LocalScriptExecutorResult> {
+  return new LocalNodeScriptExecutor().execute(input);
 }

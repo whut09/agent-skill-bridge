@@ -19,9 +19,25 @@ console.log(resource.content);
 
 ## SkillBridgeRuntime
 
-### `new SkillBridgeRuntime(skillDirs)`
+### `new SkillBridgeRuntime(skillDirs, options)`
 
 Creates a runtime from one or more skill root directories.
+
+`options.executor` can provide a custom script executor:
+
+```ts
+const runtime = new SkillBridgeRuntime(["./examples/skills"], {
+  executor: {
+    name: "custom",
+    execute: async (input) => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    }),
+  },
+});
+```
 
 ### `init()`
 
@@ -229,7 +245,7 @@ Trace events include `type`, `message`, `timestamp`, and optional `metadata`.
 - `routeSkills(query, skills, options)`
 - `buildSkillContext(input)`
 - `readSkillResource(input)`
-- `executeLocalScript(input)`
+- `executeLocalScript(input)` and `LocalNodeScriptExecutor`
 
 ## Routing API
 

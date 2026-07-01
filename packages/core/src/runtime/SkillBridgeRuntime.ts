@@ -39,9 +39,10 @@ import type {
   RuntimeTraceEvent,
   RuntimeTraceRecord,
   RuntimeTraceCandidate,
+  ScriptExecutor,
   SkillSearchResult,
 } from "../types.js";
-import { executeLocalScript } from "./localScriptExecutor.js";
+import { LocalNodeScriptExecutor } from "./localScriptExecutor.js";
 import { createRuntimeTraceEvent } from "./trace.js";
 
 export type SkillBridgeRuntimePolicyOptions = {
@@ -75,6 +76,7 @@ export type SkillBridgeRuntimeRoutingOptions = {
 export type SkillBridgeRuntimeOptions = {
   policy?: SkillBridgeRuntimePolicyOptions;
   routing?: SkillBridgeRuntimeRoutingOptions;
+  executor?: ScriptExecutor;
 };
 
 function estimateTokens(value: string | undefined): number {
@@ -250,6 +252,8 @@ export class SkillBridgeRuntime {
 
   private readonly routing: SkillBridgeRuntimeRoutingOptions;
 
+  private readonly executor: ScriptExecutor;
+
   private skills: SkillManifest[] = [];
 
   private traceEvents: RuntimeTraceEvent[] = [];
@@ -263,12 +267,14 @@ export class SkillBridgeRuntime {
   ) {
     this.skillDirs = skillDirs;
     const options = policyOrOptions as SkillBridgeRuntimeOptions;
-    if (options.policy !== undefined || options.routing !== undefined) {
+    if (options.policy !== undefined || options.routing !== undefined || options.executor !== undefined) {
       this.policy = options.policy ?? {};
       this.routing = options.routing ?? {};
+      this.executor = options.executor ?? new LocalNodeScriptExecutor();
     } else {
       this.policy = policyOrOptions as SkillBridgeRuntimePolicyOptions;
       this.routing = routing;
+      this.executor = new LocalNodeScriptExecutor();
     }
   }
 
@@ -530,6 +536,7 @@ export class SkillBridgeRuntime {
     this.trace("script_run_start", "Skill script execution started.", {
       skillName: input.skill.name,
       scriptPath: input.scriptPath,
+      executor: this.executor.name,
     });
 
     try {
@@ -549,7 +556,7 @@ export class SkillBridgeRuntime {
         scriptPath: input.scriptPath,
       });
 
-      const result = await executeLocalScript({
+      const result = await this.executor.execute({
         skillPath: input.skill.path,
         scriptPath: input.scriptPath,
         enableScripts: input.enableScripts ?? this.policy.scripts?.enabled,
@@ -559,6 +566,7 @@ export class SkillBridgeRuntime {
       this.trace("script_run_complete", "Skill script execution complete.", {
         skillName: input.skill.name,
         scriptPath: input.scriptPath,
+        executor: this.executor.name,
         exitCode: result.exitCode,
         timedOut: result.timedOut,
       });
@@ -689,7 +697,11 @@ export class SkillBridgeRuntime {
 
         await Promise.all(
           skill.scripts.map(async (scriptPath) => {
-            const resource = await readSkillResource({ skillPath: skill.path, resourcePath: scriptPath });
+            const resource = await readSkillResource({
+              skillPath: skill.path,
+              resourcePath: scriptPath,
+              allowBinary: true,
+            });
             if (resource.type === "text") {
               this.recordPolicyScanFindings(skill, scanSkillText(resource.content), scriptPath);
             }

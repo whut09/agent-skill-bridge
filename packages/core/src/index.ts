@@ -8,6 +8,7 @@ export type {
   ResourceManagerTextResult,
   RuntimeTraceEvent,
   RuntimeTraceRecord,
+  ScriptExecutor,
   ActivationDecision,
   RuntimeActivationCandidate,
   SkillBridgeMessage,
@@ -66,5 +67,5 @@ export type {
   SkillBridgeRuntimePolicyOptions,
   SkillBridgeRuntimeRoutingOptions,
 } from "./runtime/SkillBridgeRuntime.js";
-export { executeLocalScript } from "./runtime/localScriptExecutor.js";
+export { executeLocalScript, LocalNodeScriptExecutor } from "./runtime/localScriptExecutor.js";
 export { createRuntimeTraceEvent } from "./runtime/trace.js";

@@ -833,6 +833,65 @@ description: 对代码改动进行审查、指出问题并给出建议
     expect(runtime.getTrace()).toEqual([]);
   });
 
+  it("runs scripts through an injected executor", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-executor-"));
+    const skillDir = path.join(tempRoot, "skill");
+    const calls: unknown[] = [];
+    const runtime = new SkillBridgeRuntime([skillDir], {
+      executor: {
+        name: "test-executor",
+        execute: async (input) => {
+          calls.push(input);
+          return {
+            stdout: "custom executor",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        },
+      },
+    });
+
+    const scriptResult = await runtime.runScript({
+      skill: {
+        name: "Injected Executor",
+        description: "Uses a custom executor",
+        path: skillDir,
+        frontmatter: {},
+        references: [],
+        scripts: ["scripts/echo.mjs"],
+        assets: [],
+      },
+      scriptPath: "scripts/echo.mjs",
+      enableScripts: true,
+      timeoutMs: 1234,
+      args: ["--flag"],
+    });
+
+    expect(calls).toEqual([
+      expect.objectContaining({
+        skillPath: skillDir,
+        scriptPath: "scripts/echo.mjs",
+        enableScripts: true,
+        timeoutMs: 1234,
+        args: ["--flag"],
+      }),
+    ]);
+    expect(scriptResult.stdout).toBe("custom executor");
+    expect(runtime.getTrace()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "script_run_start",
+          metadata: expect.objectContaining({ executor: "test-executor" }),
+        }),
+        expect.objectContaining({
+          type: "script_run_complete",
+          metadata: expect.objectContaining({ executor: "test-executor" }),
+        }),
+      ]),
+    );
+  });
+
   it("exposes progressive runtime layers by skill name", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-runtime-layers-"));
     const skillRoot = path.join(tempRoot, "skills");
