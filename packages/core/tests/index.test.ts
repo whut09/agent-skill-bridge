@@ -618,9 +618,16 @@ metadata:
       skillPath: skillDir,
       resourcePath: "references/guide.md",
     });
+    await expect(
+      readSkillResource({
+        skillPath: skillDir,
+        resourcePath: "assets/image.bin",
+      }),
+    ).rejects.toThrow(/Binary resource reads are disabled/);
     const binaryResource = await readSkillResource({
       skillPath: skillDir,
       resourcePath: "assets/image.bin",
+      allowBinary: true,
     });
 
     expect(textResource).toMatchObject({
@@ -654,6 +661,62 @@ metadata:
         resourcePath: "../outside.md",
       }),
     ).rejects.toThrow(/outside skill directory/);
+  });
+
+  it("blocks malicious resources by default and enforces resource filters", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-malicious-resource-"));
+    const skillDir = path.join(tempRoot, "skill");
+    const referencesDir = path.join(skillDir, "references");
+
+    await mkdir(referencesDir, { recursive: true });
+    await writeFile(path.join(referencesDir, ".env"), "TOKEN=secret", "utf8");
+    await writeFile(path.join(referencesDir, ".env.local"), "TOKEN=secret", "utf8");
+    await writeFile(path.join(referencesDir, "tls.pem"), "private", "utf8");
+    await writeFile(path.join(referencesDir, "service.key"), "private", "utf8");
+    await writeFile(path.join(referencesDir, "credentials.json"), "{}", "utf8");
+    await writeFile(path.join(referencesDir, "secrets.local"), "secret", "utf8");
+    await writeFile(path.join(referencesDir, "payload.exe"), "no", "utf8");
+    await writeFile(path.join(referencesDir, "guide.md"), "ok", "utf8");
+    await writeFile(path.join(referencesDir, "image.bin"), Buffer.from([0xca, 0xfe]));
+
+    for (const resourcePath of [
+      "references/.env",
+      "references/.env.local",
+      "references/tls.pem",
+      "references/service.key",
+      "references/credentials.json",
+      "references/secrets.local",
+    ]) {
+      await expect(readSkillResource({ skillPath: skillDir, resourcePath })).rejects.toThrow(
+        /sensitive resource policy|extension is denied/,
+      );
+    }
+
+    await expect(
+      readSkillResource({
+        skillPath: skillDir,
+        resourcePath: "references/payload.exe",
+        deniedExtensions: [".exe"],
+      }),
+    ).rejects.toThrow(/extension is denied/);
+    await expect(
+      readSkillResource({
+        skillPath: skillDir,
+        resourcePath: "references/guide.md",
+        allowedExtensions: [".txt"],
+      }),
+    ).rejects.toThrow(/allowedExtensions/);
+    await expect(readSkillResource({ skillPath: skillDir, resourcePath: "references/image.bin" })).rejects.toThrow(
+      /Binary resource reads are disabled/,
+    );
+    await expect(
+      readSkillResource({
+        skillPath: skillDir,
+        resourcePath: "references/image.bin",
+        allowBinary: true,
+        allowedExtensions: [".bin"],
+      }),
+    ).resolves.toMatchObject({ type: "binary" });
   });
 
   it("prepares a runtime with selected skills and tool instructions", async () => {
@@ -1023,6 +1086,52 @@ description: Attempts path traversal
     await expect(runtime.readResource("malicious", "../../secret.txt")).rejects.toThrow(/outside skill directory/);
   });
 
+  it("audits and blocks malicious runtime resource reads", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-malicious-runtime-resource-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "malicious");
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+id: malicious
+name: Malicious Skill
+description: Attempts secret resource reads
+---
+
+# Malicious Skill`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "credentials.json"), "{}", "utf8");
+    await writeFile(path.join(skillDir, "references", "image.bin"), Buffer.from([0xba, 0xad]));
+
+    const runtime = new SkillBridgeRuntime([skillRoot]);
+    await runtime.init();
+
+    await expect(runtime.readResource("malicious", "references/credentials.json")).rejects.toThrow(
+      /sensitive resource policy/,
+    );
+    await expect(runtime.readResource("malicious", "references/image.bin")).rejects.toThrow(/Binary resource reads/);
+    expect(runtime.getTraceRecord().tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "readResource",
+          path: "references/credentials.json",
+          allowed: false,
+          reason: expect.stringContaining("sensitive resource policy"),
+        }),
+        expect.objectContaining({
+          name: "readResource",
+          path: "references/image.bin",
+          allowed: false,
+          reason: expect.stringContaining("Binary resource reads"),
+        }),
+      ]),
+    );
+    expect(runtime.getTrace().map((event) => event.type)).toContain("policy_audit");
+  });
+
   it("blocks untrusted script execution even when scripts are enabled", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-malicious-untrusted-"));
     const skillRoot = path.join(tempRoot, "skills");
@@ -1107,6 +1216,7 @@ denied-tools:
         "  default: trusted",
         "resources:",
         "  maxFileBytes: 4",
+        "  allowBinary: false",
         "  allow:",
         "    - references/**",
         "  allowedExtensions: .txt, .md",
@@ -1148,6 +1258,7 @@ description: Review with policy defaults
       trust: { minimumTrustForScripts: "trusted", default: "trusted" },
       resources: {
         maxFileBytes: 4,
+        allowBinary: false,
         allow: ["references/**"],
         allowedExtensions: [".txt", ".md"],
         deniedExtensions: [".exe"],

@@ -18,6 +18,7 @@ export type SkillBridgePolicyConfig = {
   };
   resources?: {
     maxFileBytes?: number;
+    allowBinary?: boolean;
     allow?: string[];
     allowedExtensions?: string[];
     deniedExtensions?: string[];
@@ -67,6 +68,7 @@ const policyConfigSchema = z
     resources: z
       .object({
         maxFileBytes: z.number().finite().positive().optional(),
+        allowBinary: z.boolean().optional(),
         allow: stringListSchema.optional(),
         allowedExtensions: stringListSchema.optional(),
         deniedExtensions: stringListSchema.optional(),
@@ -121,6 +123,7 @@ function parsePolicyConfig(rawConfig: Record<string, unknown>): SkillBridgePolic
     resources: parsed.data.resources
       ? cleanUndefined({
           maxFileBytes: parsed.data.resources.maxFileBytes,
+          allowBinary: parsed.data.resources.allowBinary,
           allow: parsed.data.resources.allow,
           allowedExtensions: parsed.data.resources.allowedExtensions,
           deniedExtensions: parsed.data.resources.deniedExtensions,

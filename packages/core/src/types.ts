@@ -124,6 +124,9 @@ export type ResourceManagerInput = {
   skillPath: string;
   resourcePath: string;
   maxFileBytes?: number;
+  allowBinary?: boolean;
+  allowedExtensions?: string[];
+  deniedExtensions?: string[];
 };
 
 export type LocalScriptExecutorInput = {

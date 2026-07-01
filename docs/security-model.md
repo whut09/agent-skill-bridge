@@ -39,6 +39,13 @@ trust:
   minimumTrustForScripts: local
 resources:
   maxFileBytes: 1048576
+  allowBinary: false
+  allowedExtensions:
+    - .md
+    - .txt
+    - .json
+  deniedExtensions:
+    - .exe
 network:
   enabled: false
 ```
@@ -49,6 +56,9 @@ Effects:
 - `scripts.timeoutMs` sets the default script timeout when a command/tool does not pass one.
 - `trust.minimumTrustForScripts` sets the minimum trust level required before script execution.
 - `resources.maxFileBytes` rejects resource reads above the configured size.
+- `resources.allowBinary` allows binary resource reads when explicitly set to `true`; binary reads are denied by default.
+- `resources.allowedExtensions` allows only the listed resource extensions when present.
+- `resources.deniedExtensions` rejects listed extensions in addition to default sensitive extensions.
 - `network.enabled` is parsed and surfaced for policy-aware entrypoints; network execution remains disabled unless an adapter explicitly supports it.
 
 ## Resource Boundaries
@@ -61,6 +71,12 @@ Blocked:
 ../outside.md
 /absolute/path/outside/skill.md
 assets/secret.txt    # when permissions.read only allows references/**
+.env
+*.pem
+*.key
+credentials.json
+secrets.*
+assets/image.png     # unless resources.allowBinary is true
 ```
 
 Allowed:

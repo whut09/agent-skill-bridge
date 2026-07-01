@@ -527,6 +527,9 @@ export function createCliProgram(): Command {
         skillPath,
         resourcePath: resolvedResourcePath,
         maxFileBytes: config.resources?.maxFileBytes,
+        allowBinary: config.resources?.allowBinary,
+        allowedExtensions: config.resources?.allowedExtensions,
+        deniedExtensions: config.resources?.deniedExtensions,
       });
       output(serializeResource(result, wantsDebug()), formatResource(result, wantsDebug()), wantsJson());
     });

@@ -50,6 +50,7 @@ export type SkillBridgeRuntimePolicyOptions = {
   defaultTrustLevel?: TrustLevel;
   resources?: {
     maxFileBytes?: number;
+    allowBinary?: boolean;
     allow?: string[];
     allowedExtensions?: string[];
     deniedExtensions?: string[];
@@ -113,12 +114,26 @@ function normalizeExtension(value: string): string {
   return extension.startsWith(".") ? extension : `.${extension}`;
 }
 
+function normalizeResourcePath(value: string): string {
+  return value.split("\\").join("/");
+}
+
+function getResourceBasename(resourcePath: string): string {
+  const segments = normalizeResourcePath(resourcePath).split("/");
+  return (segments.at(-1) ?? resourcePath).toLowerCase();
+}
+
 function checkResourceExtensionPolicy(
   resourcePolicy: SkillBridgeRuntimePolicyOptions["resources"],
   resourcePath: string,
 ): PolicyDecision {
   const extension = normalizeExtension(path.extname(resourcePath));
-  const deniedExtensions = resourcePolicy?.deniedExtensions?.map(normalizeExtension) ?? [];
+  const deniedExtensions = [
+    ".env",
+    ".pem",
+    ".key",
+    ...(resourcePolicy?.deniedExtensions?.map(normalizeExtension) ?? []),
+  ];
   const allowedExtensions = resourcePolicy?.allowedExtensions?.map(normalizeExtension) ?? [];
 
   if (extension && deniedExtensions.includes(extension)) {
@@ -141,6 +156,74 @@ function checkResourceExtensionPolicy(
     allowed: true,
     code: "resource.extension_allowed",
     reason: "Resource extension is allowed by policy.",
+  };
+}
+
+function checkBinaryResourcePolicy(
+  resourcePolicy: SkillBridgeRuntimePolicyOptions["resources"],
+  resourcePath: string,
+): PolicyDecision {
+  const extension = normalizeExtension(path.extname(resourcePath));
+  const textExtensions = new Set([
+    ".md",
+    ".markdown",
+    ".txt",
+    ".json",
+    ".yml",
+    ".yaml",
+    ".js",
+    ".cjs",
+    ".mjs",
+    ".sh",
+    ".bash",
+    ".py",
+    ".ps1",
+    ".ts",
+    ".tsx",
+    ".css",
+    ".html",
+    ".csv",
+    ".xml",
+    ".jsonl",
+  ]);
+
+  if (extension && textExtensions.has(extension)) {
+    return {
+      allowed: true,
+      code: "resource.binary_not_detected",
+      reason: "Resource extension is treated as text.",
+    };
+  }
+
+  if (resourcePolicy?.allowBinary === true) {
+    return {
+      allowed: true,
+      code: "resource.binary_allowed",
+      reason: "Binary resource reads are allowed by policy.",
+    };
+  }
+
+  return {
+    allowed: false,
+    code: "resource.binary_denied",
+    reason: `Binary resource reads are disabled by default: ${resourcePath}`,
+  };
+}
+
+function checkSensitiveResourcePolicy(resourcePath: string): PolicyDecision {
+  const basename = getResourceBasename(resourcePath);
+  if (basename === "credentials.json" || /^\.env(?:\.|$)/iu.test(basename) || /^secrets(?:\.|$)/iu.test(basename)) {
+    return {
+      allowed: false,
+      code: "resource.sensitive_default_denied",
+      reason: `Resource is denied by default sensitive resource policy: ${resourcePath}`,
+    };
+  }
+
+  return {
+    allowed: true,
+    code: "resource.sensitive_default_allowed",
+    reason: "Resource is not denied by the default sensitive resource policy.",
   };
 }
 
@@ -375,12 +458,20 @@ export class SkillBridgeRuntime {
     }
 
     const skill = this.findSkillByPath(input.skillPath);
+    const effectiveResourcePolicy = {
+      ...this.policy.resources,
+      allowBinary: input.allowBinary ?? this.policy.resources?.allowBinary,
+      allowedExtensions: input.allowedExtensions ?? this.policy.resources?.allowedExtensions,
+      deniedExtensions: input.deniedExtensions ?? this.policy.resources?.deniedExtensions,
+    };
     if (skill) {
       const decisions = [
         checkToolAllowed(skill, "readResource"),
         checkReadPermission(skill.permissions, input.resourcePath),
-        checkReadPermission({ read: this.policy.resources?.allow }, input.resourcePath),
-        checkResourceExtensionPolicy(this.policy.resources, input.resourcePath),
+        checkReadPermission({ read: effectiveResourcePolicy.allow }, input.resourcePath),
+        checkResourceExtensionPolicy(effectiveResourcePolicy, input.resourcePath),
+        checkSensitiveResourcePolicy(input.resourcePath),
+        checkBinaryResourcePolicy(effectiveResourcePolicy, input.resourcePath),
       ];
       this.recordToolDecision("readResource", input.resourcePath, decisions);
       this.enforcePolicy("read_resource", skill, decisions, {
@@ -397,7 +488,10 @@ export class SkillBridgeRuntime {
 
     const result = await readSkillResource({
       ...input,
-      maxFileBytes: input.maxFileBytes ?? this.policy.resources?.maxFileBytes,
+      maxFileBytes: input.maxFileBytes ?? effectiveResourcePolicy.maxFileBytes,
+      allowBinary: effectiveResourcePolicy.allowBinary,
+      allowedExtensions: effectiveResourcePolicy.allowedExtensions,
+      deniedExtensions: effectiveResourcePolicy.deniedExtensions,
     });
     this.trace("resource_read", "Skill resource read.", {
       skillPath: input.skillPath,
