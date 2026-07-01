@@ -27,6 +27,11 @@ export type {
 } from "./types.js";
 
 export { buildSkillContext } from "./context/index.js";
+export {
+  lintSkillConformance,
+  type SkillConformanceReport,
+  type SkillConformanceSummary,
+} from "./conformance/index.js";
 export { createSkillPackage } from "./package.js";
 export {
   createRuntimePolicyFromConfig,

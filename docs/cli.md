@@ -53,9 +53,19 @@ Scans skill roots and prints discovered skills with:
 
 ```bash
 pnpm skillbridge validate examples/skills
+pnpm skillbridge validate examples/skills --json
 ```
 
-Checks that all skills can be scanned and parsed. On failure it prints an error and exits with a non-zero code.
+Runs the Skill conformance suite. It checks that all skills can be scanned and parsed, then validates frontmatter, metadata, entrypoints, permissions, references, scripts, and security-risk findings. On errors it exits with a non-zero code. Use `--json` for the full machine-readable report.
+
+### lint
+
+```bash
+pnpm skillbridge lint examples/skills
+pnpm skillbridge lint examples/skills --json
+```
+
+Prints the same conformance report with issue details grouped by skill. JSON output includes `ok`, `errors`, `warnings`, and per-skill sections for frontmatter, metadata, entrypoints, permissions, references, scripts, and issues.
 
 ### search
 

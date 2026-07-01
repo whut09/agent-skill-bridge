@@ -4,6 +4,7 @@ import {
   SkillBridgeRuntime,
   createRuntimePolicyFromConfig,
   loadSkillBridgePolicy,
+  lintSkillConformance,
   parseSkillDir,
   readSkillResource,
   scanSkillDirs,
@@ -11,6 +12,7 @@ import {
   type ResourceManagerResult,
   type LocalScriptExecutorResult,
   type RuntimeTraceRecord,
+  type SkillConformanceSummary,
   type SkillManifest,
 } from "@skillbridge/core";
 import { Command } from "commander";
@@ -138,6 +140,29 @@ function formatSkillList(skillRoot: string, skills: SkillManifest[]): string {
     lines.push(
       `  resources: ${skill.references.length} references, ${skill.scripts.length} scripts, ${skill.assets.length} assets`,
     );
+  }
+
+  return lines.join("\n");
+}
+
+function formatConformanceReport(summary: SkillConformanceSummary, title: string): string {
+  const lines = [
+    `${title}: ${summary.ok ? "PASS" : "FAIL"}`,
+    `Skill root: ${summary.skillRoot}`,
+    `Skills: ${summary.total}`,
+    `Errors: ${summary.errors}`,
+    `Warnings: ${summary.warnings}`,
+  ];
+
+  for (const skill of summary.skills) {
+    lines.push("");
+    lines.push(`- ${skill.ok ? "PASS" : "FAIL"} ${skill.name}`);
+    lines.push(`  id: ${skill.id}`);
+    lines.push(`  references: ${skill.references.length}`);
+    lines.push(`  scripts: ${skill.scripts.length}`);
+    for (const issue of skill.issues) {
+      lines.push(`  ${issue.severity.toUpperCase()} ${issue.category}/${issue.code}: ${issue.message}`);
+    }
   }
 
   return lines.join("\n");
@@ -461,7 +486,7 @@ export function createCliProgram(): Command {
       const result = {
         ok: true,
         package: "agent-skill-bridge",
-        commands: ["doctor", "scan", "validate", "search", "activate", "read", "run", "exec", "trace", "eval"],
+        commands: ["doctor", "scan", "validate", "lint", "search", "activate", "read", "run", "exec", "trace", "eval"],
       };
       output(result, `agent-skill-bridge: ok\nCommands: ${result.commands.join(", ")}`, wantsJson());
     });
@@ -481,17 +506,14 @@ export function createCliProgram(): Command {
 
   addCommonOptions(program.command("validate"))
     .argument("[path]", "path to a skill root directory", ".")
-    .description("Validate that skills can be scanned and parsed")
+    .description("Validate that skills can be scanned, parsed, and pass conformance checks")
     .action(async (skillRoot: string) => {
       try {
-        const skills = await scanSkillDirs([skillRoot]);
-        const result = {
-          ok: true,
-          skillRoot,
-          count: skills.length,
-          skills: skills.map((skill) => skill.name),
-        };
-        output(result, `Validation passed: ${skills.length} skill(s) under ${skillRoot}`, wantsJson());
+        const result = await lintSkillConformance([skillRoot]);
+        output(result, formatConformanceReport(result, "Validation"), wantsJson());
+        if (!result.ok) {
+          process.exitCode = 1;
+        }
       } catch (error) {
         const result = {
           ok: false,
@@ -499,6 +521,27 @@ export function createCliProgram(): Command {
           error: error instanceof Error ? error.message : String(error),
         };
         output(result, `Validation failed: ${result.error}`, wantsJson());
+        process.exitCode = 1;
+      }
+    });
+
+  addCommonOptions(program.command("lint"))
+    .argument("[path]", "path to a skill root directory", ".")
+    .description("Run the Skill conformance suite and print a JSON-ready report")
+    .action(async (skillRoot: string) => {
+      try {
+        const result = await lintSkillConformance([skillRoot]);
+        output(result, formatConformanceReport(result, "Lint"), wantsJson());
+        if (!result.ok) {
+          process.exitCode = 1;
+        }
+      } catch (error) {
+        const result = {
+          ok: false,
+          skillRoot,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        output(result, `Lint failed: ${result.error}`, wantsJson());
         process.exitCode = 1;
       }
     });
