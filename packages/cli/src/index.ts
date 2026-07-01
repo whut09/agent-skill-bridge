@@ -42,6 +42,12 @@ type RoutingEvalResult = {
 type RoutingEvalSummary = {
   evalFile: string;
   skillDir: string;
+  thresholds?: {
+    failUnder?: number;
+    maxFalsePositive?: number;
+  };
+  passed: boolean;
+  failures: string[];
   total: number;
   correct: number;
   accuracy: number;
@@ -211,7 +217,7 @@ function evaluateRouting(
   skillDir: string,
   skills: SkillManifest[],
   cases: RoutingEvalCase[],
-  options: { topK: number; minScore: number },
+  options: { topK: number; minScore: number; failUnder?: number; maxFalsePositive?: number },
 ): RoutingEvalSummary {
   const confusionMatrix: Record<string, Record<string, number>> = {};
   const results = cases.map((testCase) => {
@@ -245,16 +251,37 @@ function evaluateRouting(
   const falseNegativeCount = results.filter(
     (result) => result.expectedSkill !== "no-skill" && result.predictedSkill === "no-skill",
   ).length;
+  const accuracy = total === 0 ? 0 : correct / total;
+  const falsePositiveRate = total === 0 ? 0 : falsePositiveCount / total;
+  const failures: string[] = [];
+
+  if (options.failUnder !== undefined && accuracy < options.failUnder) {
+    failures.push(`Accuracy ${accuracy.toFixed(2)} is below fail-under ${options.failUnder.toFixed(2)}.`);
+  }
+  if (options.maxFalsePositive !== undefined && falsePositiveRate > options.maxFalsePositive) {
+    failures.push(
+      `False positive rate ${falsePositiveRate.toFixed(2)} exceeds max-false-positive ${options.maxFalsePositive.toFixed(2)}.`,
+    );
+  }
 
   return {
     evalFile,
     skillDir,
+    thresholds:
+      options.failUnder !== undefined || options.maxFalsePositive !== undefined
+        ? {
+            failUnder: options.failUnder,
+            maxFalsePositive: options.maxFalsePositive,
+          }
+        : undefined,
+    passed: failures.length === 0,
+    failures,
     total,
     correct,
-    accuracy: total === 0 ? 0 : correct / total,
+    accuracy,
     false_positive: {
       count: falsePositiveCount,
-      rate: total === 0 ? 0 : falsePositiveCount / total,
+      rate: falsePositiveRate,
     },
     false_negative: {
       count: falseNegativeCount,
@@ -281,9 +308,11 @@ function formatRoutingEval(summary: RoutingEvalSummary): string {
   return [
     `Routing eval: ${summary.evalFile}`,
     `Skill dir: ${summary.skillDir}`,
+    `Gate: ${summary.passed ? "PASS" : "FAIL"}`,
     `Accuracy: ${summary.accuracy.toFixed(2)} (${summary.correct}/${summary.total})`,
     `False positive: ${summary.false_positive.count} (${summary.false_positive.rate.toFixed(2)})`,
     `False negative: ${summary.false_negative.count} (${summary.false_negative.rate.toFixed(2)})`,
+    ...(summary.failures.length > 0 ? ["", "Failures:", ...summary.failures.map((failure) => `- ${failure}`)] : []),
     "",
     "Confusion matrix:",
     formatConfusionMatrix(summary.confusionMatrix),
@@ -667,19 +696,30 @@ export function createCliProgram(): Command {
     .requiredOption("--skill-dir <dir>", "path to a skill root directory")
     .option("--top-k <number>", "maximum number of candidates per query", (value) => Number(value), 5)
     .option("--min-score <number>", "minimum normalized score", (value) => Number(value), 0.15)
-    .action(async (evalFile: string, options: { skillDir: string; topK: number; minScore: number }) => {
-      const skills = await scanSkillDirs([options.skillDir]);
-      const cases = await readRoutingEvalFile(evalFile);
-      const summary = evaluateRouting(evalFile, options.skillDir, skills, cases, {
-        topK: options.topK,
-        minScore: options.minScore,
-      });
+    .option("--fail-under <number>", "fail when accuracy is below this value", (value) => Number(value))
+    .option("--max-false-positive <number>", "fail when false positive rate is above this value", (value) =>
+      Number(value),
+    )
+    .action(
+      async (
+        evalFile: string,
+        options: { skillDir: string; topK: number; minScore: number; failUnder?: number; maxFalsePositive?: number },
+      ) => {
+        const skills = await scanSkillDirs([options.skillDir]);
+        const cases = await readRoutingEvalFile(evalFile);
+        const summary = evaluateRouting(evalFile, options.skillDir, skills, cases, {
+          topK: options.topK,
+          minScore: options.minScore,
+          failUnder: options.failUnder,
+          maxFalsePositive: options.maxFalsePositive,
+        });
 
-      output(summary, formatRoutingEval(summary), wantsJson());
-      if (summary.correct !== summary.total) {
-        process.exitCode = 1;
-      }
-    });
+        output(summary, formatRoutingEval(summary), wantsJson());
+        if (!summary.passed) {
+          process.exitCode = 1;
+        }
+      },
+    );
 
   return program;
 }

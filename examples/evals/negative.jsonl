@@ -1,0 +1,4 @@
+{"id":"no-skill-dessert","query":"鐑樼剻鐢滅偣鑿滃崟","expectedSkill":"no-skill"}
+{"id":"no-skill-travel","query":"瑙勫垝鍛ㄦ湯闇茶惀璺嚎","expectedSkill":"no-skill"}
+{"id":"no-skill-payroll","query":"calculate payroll tax withholding","expectedSkill":"no-skill"}
+{"id":"no-skill-fitness","query":"plan daily stretching exercises","expectedSkill":"no-skill"}

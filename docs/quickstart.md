@@ -68,10 +68,11 @@ Trace output includes the selected skill, candidates, context token estimates, t
 ## Evaluate Routing
 
 ```bash
-pnpm skillbridge eval examples/routing-eval.jsonl --skill-dir examples/skills
+pnpm skillbridge eval examples/evals/basic.jsonl --skill-dir examples/skills --fail-under 1
+pnpm skillbridge eval examples/evals/negative.jsonl --skill-dir examples/skills --max-false-positive 0
 ```
 
-The eval prints accuracy, false positives, false negatives, a confusion matrix, and per-case routing predictions.
+The eval prints accuracy, false positives, false negatives, a confusion matrix, and per-case routing predictions. Threshold flags make the command fail when routing quality falls below the configured gate.
 
 ## CI
 

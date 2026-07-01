@@ -141,11 +141,12 @@ The standard trace record includes `runId`, `userMessage`, `selectedSkill`, scor
 ### eval
 
 ```bash
-pnpm skillbridge eval examples/routing-eval.jsonl --skill-dir examples/skills
-pnpm skillbridge eval examples/routing-eval.jsonl --skill-dir examples/skills --json
+pnpm skillbridge eval examples/evals/basic.jsonl --skill-dir examples/skills
+pnpm skillbridge eval examples/evals/negative.jsonl --skill-dir examples/skills --max-false-positive 0
+pnpm skillbridge eval examples/evals/zh-en.jsonl --skill-dir examples/skills --fail-under 1 --json
 ```
 
-Runs a routing evaluation JSONL file and prints `accuracy`, `false_positive`, `false_negative`, a confusion matrix, and per-case predictions. The command exits with a non-zero code when any case fails.
+Runs a routing evaluation JSONL file and prints `accuracy`, `false_positive`, `false_negative`, a confusion matrix, and per-case predictions. By default the command reports metrics without enforcing a perfect score. Use `--fail-under <number>` to fail when accuracy is too low and `--max-false-positive <number>` to fail when false positive rate is too high.
 
 Each JSONL line uses this shape:
 
@@ -154,3 +155,9 @@ Each JSONL line uses this shape:
 ```
 
 Use `expectedSkill: "no-skill"` for queries that should not activate a skill.
+
+The repository includes:
+
+- `examples/evals/basic.jsonl`
+- `examples/evals/zh-en.jsonl`
+- `examples/evals/negative.jsonl`

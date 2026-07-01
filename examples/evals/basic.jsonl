@@ -1,0 +1,4 @@
+{"id":"code-review-regression","query":"review this pull request for regression risk","expectedSkill":"code-review"}
+{"id":"bid-writing-proposal","query":"draft a tender proposal response","expectedSkill":"bid-writing"}
+{"id":"lens-drawing-zemax","query":"Zemax CAD drawing","expectedSkill":"lens-drawing"}
+{"id":"docx-report-weekly","query":"create a Word weekly status report","expectedSkill":"docx-report"}

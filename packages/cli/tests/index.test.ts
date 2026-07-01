@@ -270,8 +270,19 @@ metadata:
     );
 
     const prettyOutput = await runCli(["eval", evalFile, "--skill-dir", skillRoot]);
+    const gatedOutput = await runCli([
+      "eval",
+      evalFile,
+      "--skill-dir",
+      skillRoot,
+      "--fail-under",
+      "1",
+      "--max-false-positive",
+      "0",
+    ]);
     const jsonOutput = parseJsonOutput(await runCli(["eval", evalFile, "--skill-dir", skillRoot, "--json"])) as {
       accuracy: number;
+      passed: boolean;
       false_positive: { count: number };
       false_negative: { count: number };
       confusionMatrix: Record<string, Record<string, number>>;
@@ -279,14 +290,50 @@ metadata:
     };
 
     expect(prettyOutput).toContain("Accuracy: 1.00 (3/3)");
+    expect(prettyOutput).toContain("Gate: PASS");
+    expect(gatedOutput).toContain("Gate: PASS");
     expect(prettyOutput).toContain("Confusion matrix:");
     expect(jsonOutput.accuracy).toBe(1);
+    expect(jsonOutput.passed).toBe(true);
     expect(jsonOutput.false_positive.count).toBe(0);
     expect(jsonOutput.false_negative.count).toBe(0);
     expect(jsonOutput.confusionMatrix["code-review"]["code-review"]).toBe(1);
     expect(jsonOutput.confusionMatrix["docx-report"]["docx-report"]).toBe(1);
     expect(jsonOutput.confusionMatrix["no-skill"]["no-skill"]).toBe(1);
     expect(jsonOutput.results.every((result) => result.correct)).toBe(true);
+  });
+
+  it("fails routing eval gates when false positives exceed the threshold", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-eval-gate-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const evalFile = path.join(tempRoot, "routing-eval.jsonl");
+
+    await mkdir(path.join(skillRoot, "review"), { recursive: true });
+    await writeFile(
+      path.join(skillRoot, "review", "SKILL.md"),
+      `---
+id: code-review
+name: Code Review
+description: Review PR risk and tests.
+metadata:
+  keywords: review
+---
+
+# Code Review
+`,
+      "utf8",
+    );
+    await writeFile(
+      evalFile,
+      [JSON.stringify({ id: "false-positive", query: "review dessert menu", expectedSkill: "no-skill" })].join("\n"),
+      "utf8",
+    );
+
+    const output = await runCli(["eval", evalFile, "--skill-dir", skillRoot, "--max-false-positive", "0"]);
+
+    expect(output).toContain("Gate: FAIL");
+    expect(output).toContain("False positive rate");
+    expect(process.exitCode).toBe(1);
   });
 
   it("accepts debug and budget on common commands", async () => {

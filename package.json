@@ -25,7 +25,8 @@
     "format:check": "prettier --check .",
     "pack:dry-run": "pnpm --filter @skillbridge/core --filter @skillbridge/policy --filter @skillbridge/cli --filter @skillbridge/mcp-server --filter @skillbridge/openai-proxy exec npm pack --dry-run",
     "e2e": "vitest run examples/e2e",
-    "ci": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm pack:dry-run && pnpm e2e",
+    "eval:routing": "pnpm skillbridge eval examples/evals/basic.jsonl --skill-dir examples/skills --fail-under 1 && pnpm skillbridge eval examples/evals/zh-en.jsonl --skill-dir examples/skills --fail-under 1 && pnpm skillbridge eval examples/evals/negative.jsonl --skill-dir examples/skills --max-false-positive 0",
+    "ci": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm pack:dry-run && pnpm e2e && pnpm eval:routing",
     "skillbridge": "node packages/cli/dist/index.js",
     "lint": "eslint ."
   }
