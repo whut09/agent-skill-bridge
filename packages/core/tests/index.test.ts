@@ -1371,4 +1371,61 @@ description: Review with policy defaults
     await expect(runtime.runScript("review", "scripts/other.mjs")).rejects.toThrow(/policy allowlist/);
     expect(scriptResult.stdout).toContain("policy script ok");
   });
+
+  it("keeps legacy .skillbridge policy.yaml fields compatible", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-policy-legacy-"));
+    const skillRoot = path.join(tempRoot, "skills");
+    const skillDir = path.join(skillRoot, "legacy");
+    const policyDir = path.join(tempRoot, ".skillbridge");
+
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    await mkdir(path.join(skillDir, "scripts"), { recursive: true });
+    await mkdir(policyDir, { recursive: true });
+    await writeFile(
+      path.join(policyDir, "policy.yaml"),
+      [
+        "scripts:",
+        "  enabled: true",
+        "  timeoutMs: 5000",
+        "trust:",
+        "  minimumTrustForScripts: local",
+        "resources:",
+        "  maxFileBytes: 4",
+        "network:",
+        "  enabled: false",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+id: legacy
+name: Legacy Policy
+description: Legacy policy compatibility
+---
+
+# Legacy Policy`,
+      "utf8",
+    );
+    await writeFile(path.join(skillDir, "references", "small.txt"), "ok", "utf8");
+    await writeFile(path.join(skillDir, "references", "large.txt"), "too large", "utf8");
+    await writeFile(path.join(skillDir, "scripts", "echo.mjs"), `console.log("legacy policy ok");`, "utf8");
+
+    const loadedPolicy = await loadSkillBridgePolicy([skillRoot]);
+    const runtime = new SkillBridgeRuntime([skillRoot], createRuntimePolicyFromConfig(loadedPolicy.config));
+    await runtime.init();
+
+    const smallResource = await runtime.readResource("legacy", "references/small.txt");
+    const scriptResult = await runtime.runScript("legacy", "scripts/echo.mjs");
+
+    expect(loadedPolicy.config).toMatchObject({
+      scripts: { enabled: true, timeoutMs: 5000 },
+      trust: { minimumTrustForScripts: "local" },
+      resources: { maxFileBytes: 4 },
+      network: { enabled: false },
+    });
+    expect(smallResource).toMatchObject({ type: "text", content: "ok" });
+    await expect(runtime.readResource("legacy", "references/large.txt")).rejects.toThrow(/maxFileBytes/);
+    expect(scriptResult.stdout).toContain("legacy policy ok");
+  });
 });

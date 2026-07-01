@@ -35,10 +35,15 @@ Supported fields:
 scripts:
   enabled: false
   timeoutMs: 30000
+  allow:
+    - scripts/check.mjs
 trust:
   minimumTrustForScripts: local
+  default: local
 resources:
   maxFileBytes: 1048576
+  allow:
+    - references/**
   allowBinary: false
   allowedExtensions:
     - .md
@@ -54,12 +59,17 @@ Effects:
 
 - `scripts.enabled` enables script execution by default for entrypoints that read policy.
 - `scripts.timeoutMs` sets the default script timeout when a command/tool does not pass one.
+- `scripts.allow` limits script execution to the listed relative script paths.
 - `trust.minimumTrustForScripts` sets the minimum trust level required before script execution.
+- `trust.default` sets the trust level assigned to loaded skills when no narrower runtime policy overrides it.
 - `resources.maxFileBytes` rejects resource reads above the configured size.
+- `resources.allow` limits resource reads to the listed relative paths or glob patterns.
 - `resources.allowBinary` allows binary resource reads when explicitly set to `true`; binary reads are denied by default.
 - `resources.allowedExtensions` allows only the listed resource extensions when present.
 - `resources.deniedExtensions` rejects listed extensions in addition to default sensitive extensions.
 - `network.enabled` is parsed and surfaced for policy-aware entrypoints; network execution remains disabled unless an adapter explicitly supports it.
+
+Policy files are parsed as YAML and validated with zod. The original simple shape remains supported, so existing policy files that only set `scripts.enabled`, `scripts.timeoutMs`, `trust.minimumTrustForScripts`, `resources.maxFileBytes`, and `network.enabled` continue to load unchanged.
 
 ## Resource Boundaries
 
