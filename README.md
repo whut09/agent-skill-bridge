@@ -57,7 +57,42 @@ flowchart LR
   Scripts --> Skills
 ```
 
-## 30 Second Demo
+## Change base_url, get skills
+
+```bash
+pnpm install
+pnpm build
+SKILLBRIDGE_TARGET_BASE_URL=https://api.openai.com \
+SKILLBRIDGE_TARGET_API_KEY=$OPENAI_API_KEY \
+SKILLBRIDGE_SKILL_DIR=./examples/skills \
+SKILLBRIDGE_PROXY_MODE=loop \
+node packages/openai-proxy/dist/server.js
+```
+
+Point an existing OpenAI-compatible agent at the proxy:
+
+```ts
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: "http://localhost:3000/v1",
+});
+```
+
+```text
+Existing Agent -> SkillBridge Proxy -> LLM -> SKILL.md packages
+```
+
+The agent keeps using the OpenAI chat completions shape. SkillBridge sits at the runtime boundary: it routes the user task to the right `SKILL.md` package, injects progressive context, exposes skill tools, applies policy gates, and returns trace headers.
+
+## Choose An Integration
+
+| Integration  | Best For                                                               | What You Change                                                 | SkillBridge Handles                                                              |
+| ------------ | ---------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| SDK          | You own the agent runtime or app code                                  | Import `@skillbridge/core` and call `runtime.prepare()` / tools | Routing, progressive context, resource reads, script execution, trace            |
+| MCP Server   | Claude Desktop, Cursor, LibreChat, OpenCode-style tool hosts           | Add a local MCP server command                                  | Native tools/resources/prompts, `skillId` lookup, policy gates                   |
+| OpenAI Proxy | Existing OpenAI-compatible agents where changing `base_url` is easiest | Point `base_url` at the proxy                                   | System patch injection, OpenAI tools, optional internal tool loop, trace headers |
+
+## CLI Demo
 
 ```bash
 pnpm install
@@ -69,14 +104,6 @@ pnpm skillbridge exec examples/skills "PR risk review" --enable-scripts
 ```
 
 Expected result: `Code Review` is selected, the system patch includes the selected skill body, and resources/scripts remain available through runtime tools instead of being dumped into the prompt.
-
-## Choose An Integration
-
-| Integration  | Best For                                                               | What You Change                                                 | SkillBridge Handles                                                              |
-| ------------ | ---------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| SDK          | You own the agent runtime or app code                                  | Import `@skillbridge/core` and call `runtime.prepare()` / tools | Routing, progressive context, resource reads, script execution, trace            |
-| MCP Server   | Claude Desktop, Cursor, LibreChat, OpenCode-style tool hosts           | Add a local MCP server command                                  | Native tools/resources/prompts, `skillId` lookup, policy gates                   |
-| OpenAI Proxy | Existing OpenAI-compatible agents where changing `base_url` is easiest | Point `base_url` at the proxy                                   | System patch injection, OpenAI tools, optional internal tool loop, trace headers |
 
 ## Minimal Examples
 
