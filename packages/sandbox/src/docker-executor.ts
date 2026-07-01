@@ -1,4 +1,4 @@
-import type { ScriptExecutor, ScriptExecutorInput, ScriptExecutorResult } from "./types.js";
+import type { ScriptExecutor, ScriptExecutorResult } from "./types.js";
 
 export type DockerScriptExecutorOptions = {
   image: string;
@@ -14,7 +14,7 @@ export class DockerScriptExecutor implements ScriptExecutor {
 
   constructor(readonly options: DockerScriptExecutorOptions) {}
 
-  async execute(_input: ScriptExecutorInput): Promise<ScriptExecutorResult> {
+  async execute(): Promise<ScriptExecutorResult> {
     throw new Error(
       [
         "DockerScriptExecutor is a stable interface stub and is not implemented yet.",

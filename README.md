@@ -40,6 +40,67 @@ So the rule of thumb is:
 - One agent, one local skill, no audit or compatibility needs: you may not need SkillBridge.
 - Multiple agents, shared skills, security gates, traceability, evals, or SDK/MCP/OpenAI-compatible integration: SkillBridge is the runtime gateway.
 
+## Naive parser vs SkillBridge
+
+Run the comparison examples:
+
+```bash
+pnpm exec tsx examples/comparison/naive-parser.ts
+pnpm exec tsx examples/comparison/skillbridge-runtime.ts
+```
+
+For the same query, `review this pull request for regression risk`, the naive parser inlines every discovered skill,
+reference, script, and asset before routing. SkillBridge loads only the catalog plus the selected skill body, then reads
+resources through runtime tools.
+
+| Runtime             | Prompt size | Selected skill | Resources loaded | Policy decisions | Trace record |
+| ------------------- | ----------- | -------------- | ---------------- | ---------------- | ------------ |
+| Naive parser        | 7483 chars  | `code-review`  | 13 upfront       | none             | none         |
+| SkillBridge runtime | 1151 chars  | `code-review`  | 1 on demand      | audited          | yes          |
+
+Naive parser output:
+
+```json
+{
+  "mode": "naive-parser",
+  "promptSizeChars": 7483,
+  "selectedSkill": "code-review",
+  "resourcesLoaded": 13,
+  "policyDecisions": "none",
+  "traceRecord": "none"
+}
+```
+
+SkillBridge runtime output:
+
+```json
+{
+  "mode": "skillbridge-runtime",
+  "promptSizeChars": 1151,
+  "selectedSkill": "code-review",
+  "resourcesLoaded": 1,
+  "policyDecisions": [
+    {
+      "tool": "readResource",
+      "path": "references/guide.md",
+      "allowed": true
+    }
+  ],
+  "traceRecord": {
+    "selectedSkill": "Code Review",
+    "events": [
+      "scan_start",
+      "scan_complete",
+      "search_start",
+      "skill_selected",
+      "context_built",
+      "policy_audit",
+      "resource_read"
+    ]
+  }
+}
+```
+
 ## Architecture
 
 ```mermaid
