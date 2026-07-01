@@ -55,17 +55,17 @@ resources through runtime tools.
 
 | Runtime             | Prompt size | Selected skill | Resources loaded | Policy decisions | Trace record |
 | ------------------- | ----------- | -------------- | ---------------- | ---------------- | ------------ |
-| Naive parser        | 7483 chars  | `code-review`  | 13 upfront       | none             | none         |
-| SkillBridge runtime | 1151 chars  | `code-review`  | 1 on demand      | audited          | yes          |
+| Naive parser        | 8435 chars  | `code-review`  | 16 upfront       | none             | none         |
+| SkillBridge runtime | 1350 chars  | `code-review`  | 1 on demand      | audited          | yes          |
 
 Naive parser output:
 
 ```json
 {
   "mode": "naive-parser",
-  "promptSizeChars": 7483,
+  "promptSizeChars": 8435,
   "selectedSkill": "code-review",
-  "resourcesLoaded": 13,
+  "resourcesLoaded": 16,
   "policyDecisions": "none",
   "traceRecord": "none"
 }
@@ -76,7 +76,7 @@ SkillBridge runtime output:
 ```json
 {
   "mode": "skillbridge-runtime",
-  "promptSizeChars": 1151,
+  "promptSizeChars": 1350,
   "selectedSkill": "code-review",
   "resourcesLoaded": 1,
   "policyDecisions": [
@@ -90,6 +90,7 @@ SkillBridge runtime output:
     "selectedSkill": "Code Review",
     "events": [
       "scan_start",
+      "policy_scan_finding",
       "scan_complete",
       "search_start",
       "skill_selected",
@@ -97,6 +98,48 @@ SkillBridge runtime output:
       "policy_audit",
       "resource_read"
     ]
+  }
+}
+```
+
+## Malicious skill demo
+
+`examples/skills/malicious-demo` is intentionally unsafe. It contains prompt injection text, a path traversal attempt, a
+secret read attempt, and a dangerous-looking script. It is checked in so policy behavior can be tested and demonstrated.
+
+SkillBridge does not execute the dangerous script during scan. It records findings and blocks unsafe runtime actions:
+
+```json
+{
+  "scanFindings": [
+    {
+      "type": "policy_scan_finding",
+      "skillName": "Malicious Demo",
+      "category": "prompt_injection"
+    },
+    {
+      "type": "policy_scan_finding",
+      "skillName": "Malicious Demo",
+      "category": "dangerous_command",
+      "resourcePath": "scripts/destroy.mjs"
+    },
+    {
+      "type": "policy_scan_finding",
+      "skillName": "Malicious Demo",
+      "category": "external_download",
+      "resourcePath": "scripts/destroy.mjs"
+    }
+  ],
+  "blockedResource": {
+    "tool": "readResource",
+    "path": "references/credentials.json",
+    "allowed": false,
+    "reason": "Resource is denied by default sensitive resource policy"
+  },
+  "blockedScript": {
+    "path": "scripts/destroy.mjs",
+    "allowed": false,
+    "reason": "Tool is denied by skill metadata: runScript"
   }
 }
 ```

@@ -1223,6 +1223,46 @@ trust: untrusted
     );
   });
 
+  it("blocks the checked-in malicious demo skill", async () => {
+    const skillRoot = path.resolve(process.cwd(), "../../examples/skills");
+    const runtime = new SkillBridgeRuntime([skillRoot], { scripts: { enabled: true } });
+    await runtime.init();
+
+    const findings = runtime
+      .getTrace()
+      .filter((event) => event.type === "policy_scan_finding" && event.metadata?.skillName === "Malicious Demo");
+
+    expect(findings.map((finding) => finding.metadata?.category)).toEqual(
+      expect.arrayContaining(["prompt_injection", "dangerous_command", "external_download"]),
+    );
+    await expect(runtime.readResource("malicious-demo", "../../secret.txt")).rejects.toThrow(/outside skill directory/);
+    await expect(runtime.readResource("malicious-demo", "references/credentials.json")).rejects.toThrow(
+      /sensitive resource policy/,
+    );
+    await expect(runtime.runScript("malicious-demo", "scripts/destroy.mjs")).rejects.toThrow(/Tool is denied/);
+
+    const traceRecord = runtime.getTraceRecord();
+    expect(traceRecord.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "readResource",
+          path: "references/credentials.json",
+          allowed: false,
+          reason: expect.stringContaining("sensitive resource policy"),
+        }),
+      ]),
+    );
+    expect(traceRecord.scripts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "scripts/destroy.mjs",
+          allowed: false,
+          reason: expect.stringContaining("Tool is denied"),
+        }),
+      ]),
+    );
+  });
+
   it("lets deniedTools override allowedTools at runtime", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "skillbridge-malicious-denied-tools-"));
     const skillRoot = path.join(tempRoot, "skills");
