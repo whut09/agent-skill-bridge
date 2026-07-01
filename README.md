@@ -1,16 +1,44 @@
 # agent-skill-bridge
 
-Run Agent Skills in any existing agent without rewriting a skill runtime.
+SkillBridge is a runtime gateway that lets existing agents use SKILL.md packages through SDK, MCP, or OpenAI-compatible proxy, with progressive context loading, policy gates, and traceable execution.
 
-Agent Skill Bridge parses `SKILL.md`, routes user tasks to skills, progressively loads instructions and resources, exposes tools through SDK/MCP/OpenAI-compatible proxy, and traces every runtime decision.
+SkillBridge is not a `SKILL.md` parser. It is a Skill Runtime Gateway / Harness for teams that already have agents and want those agents to share the same local skill packages without rewriting routing, tool exposure, resource loading, policy checks, and audit traces for every integration.
 
-One sentence: SkillBridge is a progressive Skill runtime layer for existing agents, turning local `SKILL.md` packages into routed instructions, safe resources, optional scripts, and auditable tool calls.
+中文定位：SkillBridge 不是 `SKILL.md` 解析器，而是面向已有 Agent 的 Skill Runtime 网关。它把本地 `SKILL.md` 技能包接到 SDK、MCP Server 或 OpenAI-compatible proxy，让多个 Agent 可以复用同一批 Skill，并获得渐进式上下文加载、安全策略门禁、可追踪执行和路由评测能力。
 
-Its core value is bringing the Agent Skills progressive disclosure model to any agent: skill directories contain `SKILL.md`; `name`, `description`, and `metadata.keywords` are available for lightweight routing; the full `SKILL.md` body is loaded only when a task selects that skill; references, scripts, and assets are read or executed only when needed.
+If you only want to add one local skill to one agent, you may not need SkillBridge. Reading a `SKILL.md` file and pasting it into that agent's system prompt may be enough.
 
-中文说明：SkillBridge 是一个面向现有 Agent 的渐进式 Skill runtime。它不发明新标准，而是把本地 `SKILL.md` 技能包变成可路由的指令、可安全读取的资源、可选执行的脚本，以及可审计的运行轨迹。
+SkillBridge becomes useful when you need a runtime boundary around skills:
+
+- multiple agents or agent surfaces need to reuse the same skills
+- skill activation should be routed, scored, evaluated, and explained
+- long references, assets, and scripts should stay out of the prompt until needed
+- resource reads and script execution need policy gates
+- tool calls and runtime decisions need traces for debugging or audit
+- SDK, MCP, and OpenAI-compatible agents need the same skill behavior through different adapters
 
 It does not define a new skill standard or marketplace. It bridges existing `SKILL.md` packages into real agent execution loops.
+
+## Why not just parse SKILL.md?
+
+Parsing `SKILL.md` gives you the file contents. It does not give you a runtime contract.
+
+A parser can read frontmatter and markdown, but an agent integration still has to answer operational questions:
+
+- Which skill should activate for this user task?
+- How much skill context should go into the prompt?
+- When should references, assets, or scripts be loaded?
+- Which resources are safe to read?
+- Are scripts allowed, trusted, and auditable?
+- How do MCP clients, SDK users, and OpenAI-compatible agents call the same skill tools?
+- How do you know routing quality did not regress?
+
+SkillBridge treats `SKILL.md` as the package format, then adds the missing runtime harness around it: discovery, routing, progressive context, resource and script tools, policy gates, trace records, and routing evals.
+
+So the rule of thumb is:
+
+- One agent, one local skill, no audit or compatibility needs: you may not need SkillBridge.
+- Multiple agents, shared skills, security gates, traceability, evals, or SDK/MCP/OpenAI-compatible integration: SkillBridge is the runtime gateway.
 
 ## Architecture
 
