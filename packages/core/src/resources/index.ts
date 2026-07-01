@@ -50,7 +50,7 @@ const mimeTypesByExtension: Record<string, string> = {
 };
 
 const defaultDeniedExtensions = [".env", ".pem", ".key"];
-const defaultDeniedBasenames = [".env", "credentials.json"];
+const defaultDeniedBasenames = [".env", "credentials.json", "id_rsa"];
 const defaultDeniedFilenamePatterns = [/^\.env(?:\.|$)/iu, /^secrets(?:\.|$)/iu];
 
 function isWithinDirectory(directory: string, candidate: string): boolean {

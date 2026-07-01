@@ -84,6 +84,7 @@ assets/secret.txt    # when permissions.read only allows references/**
 .env
 *.pem
 *.key
+id_rsa
 credentials.json
 secrets.*
 assets/image.png     # unless resources.allowBinary is true

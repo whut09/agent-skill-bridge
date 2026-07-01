@@ -214,7 +214,12 @@ function checkBinaryResourcePolicy(
 
 function checkSensitiveResourcePolicy(resourcePath: string): PolicyDecision {
   const basename = getResourceBasename(resourcePath);
-  if (basename === "credentials.json" || /^\.env(?:\.|$)/iu.test(basename) || /^secrets(?:\.|$)/iu.test(basename)) {
+  if (
+    basename === "credentials.json" ||
+    basename === "id_rsa" ||
+    /^\.env(?:\.|$)/iu.test(basename) ||
+    /^secrets(?:\.|$)/iu.test(basename)
+  ) {
     return {
       allowed: false,
       code: "resource.sensitive_default_denied",

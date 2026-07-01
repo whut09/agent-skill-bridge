@@ -189,7 +189,7 @@ Reads only files inside the skill directory.
 Resource reads also enforce security defaults:
 
 - binary files are denied unless `allowBinary: true` is passed or configured in policy
-- `.env`, `.pem`, `.key`, `credentials.json`, and `secrets.*` are denied by default
+- `.env`, `.pem`, `.key`, `id_rsa`, `credentials.json`, and `secrets.*` are denied by default
 - `allowedExtensions` and `deniedExtensions` can further constrain reads
 
 `readResource(skillName, resourcePath)` still works as a deprecated compatibility fallback, but new integrations should pass `skillId`.

@@ -673,6 +673,7 @@ metadata:
     await writeFile(path.join(referencesDir, ".env.local"), "TOKEN=secret", "utf8");
     await writeFile(path.join(referencesDir, "tls.pem"), "private", "utf8");
     await writeFile(path.join(referencesDir, "service.key"), "private", "utf8");
+    await writeFile(path.join(referencesDir, "id_rsa"), "private", "utf8");
     await writeFile(path.join(referencesDir, "credentials.json"), "{}", "utf8");
     await writeFile(path.join(referencesDir, "secrets.local"), "secret", "utf8");
     await writeFile(path.join(referencesDir, "payload.exe"), "no", "utf8");
@@ -684,6 +685,7 @@ metadata:
       "references/.env.local",
       "references/tls.pem",
       "references/service.key",
+      "references/id_rsa",
       "references/credentials.json",
       "references/secrets.local",
     ]) {
@@ -1163,6 +1165,7 @@ description: Attempts secret resource reads
       "utf8",
     );
     await writeFile(path.join(skillDir, "references", "credentials.json"), "{}", "utf8");
+    await writeFile(path.join(skillDir, "references", "id_rsa"), "private", "utf8");
     await writeFile(path.join(skillDir, "references", "image.bin"), Buffer.from([0xba, 0xad]));
 
     const runtime = new SkillBridgeRuntime([skillRoot]);
@@ -1171,12 +1174,19 @@ description: Attempts secret resource reads
     await expect(runtime.readResource("malicious", "references/credentials.json")).rejects.toThrow(
       /sensitive resource policy/,
     );
+    await expect(runtime.readResource("malicious", "references/id_rsa")).rejects.toThrow(/sensitive resource policy/);
     await expect(runtime.readResource("malicious", "references/image.bin")).rejects.toThrow(/Binary resource reads/);
     expect(runtime.getTraceRecord().tools).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: "readResource",
           path: "references/credentials.json",
+          allowed: false,
+          reason: expect.stringContaining("sensitive resource policy"),
+        }),
+        expect.objectContaining({
+          name: "readResource",
+          path: "references/id_rsa",
           allowed: false,
           reason: expect.stringContaining("sensitive resource policy"),
         }),
