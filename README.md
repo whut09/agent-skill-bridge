@@ -406,6 +406,25 @@ RuleRouter or EmbeddingRouter retrieves topK candidates
 
 `RuleRouter` is the zero-dependency default. `EmbeddingRouter` accepts an optional search callback for vector recall, and `LlmRerankRouter` accepts an optional rerank callback for final model judgment. Use `routeSkillsWithTrace()` when you need retrieved, policy-filtered, and reranked candidate lists for debugging or audits.
 
+`SkillBridgeRuntime` accepts the same routing pipeline through `routing` options:
+
+```ts
+const runtime = new SkillBridgeRuntime(["./examples/skills"], {
+  routing: {
+    topK: 5,
+    minScore: 0.15,
+    router,
+    policyFilter,
+    reranker,
+  },
+});
+
+await runtime.prepare({ messages, userMessage });
+console.log(runtime.getTraceRecord().retrieved);
+console.log(runtime.getTraceRecord().policyFiltered);
+console.log(runtime.getTraceRecord().reranked);
+```
+
 ## MCP Server
 
 The MCP server exposes native MCP tools, resources, and prompts.

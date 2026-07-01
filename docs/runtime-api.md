@@ -39,6 +39,23 @@ const runtime = new SkillBridgeRuntime(["./examples/skills"], {
 });
 ```
 
+`options.routing` can inject a custom routing pipeline:
+
+```ts
+const runtime = new SkillBridgeRuntime(["./examples/skills"], {
+  routing: {
+    topK: 8,
+    minScore: 0.1,
+    router: embeddingRouter,
+    policyFilter: trustedOnlyFilter,
+    reranker: llmReranker,
+  },
+});
+```
+
+The runtime passes these options to `routeSkillsWithTrace()`. `getTraceRecord()` then exposes the retrieved,
+policy-filtered, and reranked candidate sets for debugging and audit.
+
 ### `init()`
 
 Scans skill roots and returns:
@@ -227,6 +244,9 @@ runtime.clearTrace();
   userMessage: "review this PR",
   selectedSkill: "Code Review",
   candidates: [{ name: "Code Review", score: 0.91, reason: "keywords matched" }],
+  retrieved: [{ name: "Untrusted Review", score: 0.95, reason: "custom router first" }],
+  policyFiltered: [{ name: "Code Review", score: 0.9, reason: "trusted candidate" }],
+  reranked: [{ name: "Code Review", score: 0.91, reason: "llm reranked" }],
   context: { catalogTokens: 120, skillTokens: 900, resourceTokens: 0 },
   tools: [{ name: "readResource", path: "references/checklist.md", allowed: true }],
   scripts: [{ path: "scripts/check.mjs", allowed: false, reason: "scripts disabled" }],
@@ -296,3 +316,25 @@ The routing pipeline is:
 4. `ActivationDecision` selects the final skill or declines activation.
 
 `RuleRouter` is the default zero-dependency router. `EmbeddingRouter` and `LlmRerankRouter` are optional adapter shells, so SkillBridge does not require embedding or LLM dependencies at install time. `routeSkillsWithTrace()` returns `retrieved`, `policyFiltered`, and `reranked` lists for explainability.
+
+The same pipeline is available through `SkillBridgeRuntime`:
+
+```ts
+const runtime = new SkillBridgeRuntime(["./examples/skills"], {
+  routing: {
+    topK: 5,
+    minScore: 0.15,
+    router: new RuleRouter(),
+    policyFilter: new PolicyFilter(),
+    reranker: new LlmRerankRouter({
+      rerank: async ({ candidates }) => candidates,
+    }),
+  },
+});
+```
+
+After `prepare()` or `activateSkill()`, `runtime.getTraceRecord()` includes:
+
+- `retrieved`: candidates returned by the retrieval router.
+- `policyFiltered`: candidates after policy filtering.
+- `reranked`: candidates after the optional reranker.
